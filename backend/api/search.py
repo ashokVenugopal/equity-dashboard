@@ -20,25 +20,64 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/search", tags=["search"])
 
 # ── Concept aliases for filter parsing ──
+# Maps user-friendly names to concept_code in the database.
+# Keep sorted by category for maintainability.
 _CONCEPT_ALIASES = {
+    # Revenue & Profit
     "sales": "sales", "revenue": "sales",
     "net profit": "net_profit", "pat": "net_profit", "profit": "net_profit",
-    "market cap": "market_cap", "mcap": "market_cap",
-    "eps": "eps",
-    "pe": "price_to_earning", "p/e": "price_to_earning",
-    "roe": "roe", "roce": "roce",
-    "npm": "npm", "opm": "opm",
+    "operating profit": "operating_profit", "ebitda": "operating_profit",
+    "eps": "eps", "earnings per share": "eps",
+    # Market
+    "market cap": "market_cap", "mcap": "market_cap", "market capitalisation": "market_cap",
+    "current price": "current_price", "price": "current_price", "cmp": "current_price",
+    # Valuation ratios
+    "pe": "price_to_earning", "p/e": "price_to_earning", "price to earning": "price_to_earning",
+    "peg": "peg_ratio", "peg ratio": "peg_ratio",
+    "price to book": "price_to_book", "p/b": "price_to_book", "pb": "price_to_book",
+    "price to sales": "price_to_sales", "p/s": "price_to_sales",
+    "ev/ebitda": "ev_ebitda", "ev ebitda": "ev_ebitda",
+    "dividend yield": "dividend_yield", "dy": "dividend_yield",
+    "earnings yield": "earnings_yield",
+    # Margins
+    "npm": "npm", "net profit margin": "npm", "net margin": "npm",
+    "opm": "opm", "operating margin": "opm", "operating profit margin": "opm",
+    "gross margin": "gross_margin",
+    # Returns
+    "roe": "roe", "return on equity": "roe",
+    "roce": "roce", "return on capital": "roce",
+    "roic": "roic", "return on invested capital": "roic",
+    "roa": "return_on_assets", "return on assets": "return_on_assets",
+    # Leverage & coverage
     "debt": "debt_to_equity", "debt to equity": "debt_to_equity", "d/e": "debt_to_equity",
     "borrowings": "borrowings",
-    "dividend yield": "dividend_yield", "dy": "dividend_yield",
     "current ratio": "current_ratio",
+    "quick ratio": "quick_ratio",
     "interest coverage": "interest_coverage",
-    "promoter holding": "sh_promoters", "promoters": "sh_promoters",
+    # Growth
+    "sales growth": "sales_growth_headline", "revenue growth": "sales_growth_headline",
+    "profit growth": "profit_growth", "pat growth": "profit_growth", "earnings growth": "profit_growth",
+    "sales growth 3y": "screener_profit_growth_3y",
+    "sales growth 5y": "screener_profit_growth_5y",
+    "sales growth 10y": "screener_profit_growth_10y",
+    # Balance sheet
+    "book value": "book_value",
+    "total assets": "total_assets",
+    "total liabilities": "total_liabilities",
+    "reserves": "reserves",
+    "equity": "equity_share_capital",
+    # Cash flow
+    "cfo": "cfo", "cash from operations": "cfo",
+    "free cash flow": "free_cash_flow", "fcf": "free_cash_flow",
+    # Shareholding
+    "promoter holding": "sh_promoters", "promoters": "sh_promoters", "promoter": "sh_promoters",
     "fii holding": "sh_fiis", "fii": "sh_fiis",
     "dii holding": "sh_diis", "dii": "sh_diis",
-    "sales growth": "sales_growth_headline", "pat growth": "profit_growth",
-    "book value": "book_value",
-    "price to book": "price_to_book", "p/b": "price_to_book",
+    "public holding": "sh_public", "public": "sh_public",
+    # Turnover
+    "debtor days": "debtor_days",
+    "inventory turnover": "inventory_turnover",
+    "asset turnover": "asset_turnover",
 }
 
 # ── Filter condition regex ──
@@ -180,7 +219,7 @@ def filter_companies(body: FilterRequest):
 
         sql = f"""
             WITH {','.join(cte_parts)}
-            SELECT comp.symbol, comp.name,
+            SELECT comp.symbol, COALESCE(comp.name, comp.symbol) AS name,
                    {', '.join(f'{f"c{i}"}.{f"c{i}"}_val AS {conditions[i]["concept_code"]}' for i in range(len(conditions)))}
             FROM companies comp
             {' '.join(f'JOIN c{i} ON comp.company_id = c{i}.company_id' for i in range(len(conditions)))}
@@ -241,3 +280,37 @@ def search_suggestions(q: str = Query("", description="Partial input")):
     elapsed = time.time() - t0
     logger.info("GET /api/search/suggestions?q=%s — %d suggestions, %.3fs", q, len(suggestions), elapsed)
     return {"query": q, "suggestions": suggestions}
+
+
+@router.get("/concepts")
+def search_concepts(q: str = Query("", description="Partial concept name")):
+    """
+    Autocomplete for filter concepts. Returns matching concept aliases
+    with their concept_code, grouped to avoid duplicates.
+    """
+    term = q.strip().lower()
+    if not term:
+        # Return popular/common concepts
+        popular = [
+            "pe", "peg", "roe", "roce", "npm", "opm", "debt",
+            "market cap", "eps", "sales", "net profit", "dividend yield",
+            "sales growth", "profit growth", "book value", "price to book",
+            "current ratio", "interest coverage", "promoters", "fii",
+        ]
+        return {"concepts": [{"alias": a, "code": _CONCEPT_ALIASES[a]} for a in popular]}
+
+    # Find matching aliases
+    seen_codes: set = set()
+    results = []
+    # Exact prefix matches first
+    for alias, code in _CONCEPT_ALIASES.items():
+        if alias.startswith(term) and code not in seen_codes:
+            results.append({"alias": alias, "code": code})
+            seen_codes.add(code)
+    # Then substring matches
+    for alias, code in _CONCEPT_ALIASES.items():
+        if term in alias and code not in seen_codes:
+            results.append({"alias": alias, "code": code})
+            seen_codes.add(code)
+
+    return {"concepts": results[:15]}

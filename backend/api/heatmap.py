@@ -41,18 +41,24 @@ def heatmap_data(index: str):
                   AND i.is_active = 1
                 GROUP BY i.instrument_id
             ),
-            ranked AS (
+            best_per_date AS (
                 SELECT ph.instrument_id, ph.trade_date, ph.close,
                        ROW_NUMBER() OVER (
-                           PARTITION BY ph.instrument_id
-                           ORDER BY ph.trade_date DESC,
-                               CASE ph.source
-                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
-                                   WHEN 'yahoo_finance' THEN 3 ELSE 4
-                               END
-                       ) AS rn
+                           PARTITION BY ph.instrument_id, ph.trade_date
+                           ORDER BY CASE ph.source
+                               WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                               WHEN 'yahoo_finance' THEN 3 ELSE 4
+                           END
+                       ) AS src_rn
                 FROM price_history ph
                 WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
+            ),
+            ranked AS (
+                SELECT instrument_id, trade_date, close,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY instrument_id ORDER BY trade_date DESC
+                       ) AS rn
+                FROM best_per_date WHERE src_rn = 1
             ),
             market_caps AS (
                 SELECT bf.company_id, bf.value AS market_cap

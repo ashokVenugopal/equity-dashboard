@@ -212,23 +212,27 @@ def market_global():
 def _get_index_cards(conn):
     """Get latest price + previous day for change calculation for Indian indices."""
     # Query price_history directly — avoids the slow best_prices correlated subquery
+    # Two-stage: first pick best source per date, then rank by date
     rows = conn.execute("""
-        WITH ranked AS (
+        WITH best_per_date AS (
             SELECT ph.instrument_id, ph.trade_date, ph.open, ph.high, ph.low,
                    ph.close, ph.volume,
                    ROW_NUMBER() OVER (
-                       PARTITION BY ph.instrument_id
-                       ORDER BY ph.trade_date DESC,
-                           CASE ph.source
-                               WHEN 'nse_index' THEN 1 WHEN 'nse_bhavcopy' THEN 2
-                               WHEN 'yahoo_finance' THEN 3 ELSE 4
-                           END
-                   ) AS rn
+                       PARTITION BY ph.instrument_id, ph.trade_date
+                       ORDER BY CASE ph.source
+                           WHEN 'nse_index' THEN 1 WHEN 'nse_bhavcopy' THEN 2
+                           WHEN 'yahoo_finance' THEN 3 ELSE 4
+                       END
+                   ) AS src_rn
             FROM price_history ph
             WHERE ph.instrument_id IN (
                 SELECT instrument_id FROM instruments
                 WHERE instrument_type = 'index' AND exchange = 'NSE' AND is_active = 1
             )
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
+            FROM best_per_date WHERE src_rn = 1
         ),
         latest AS (
             SELECT * FROM ranked WHERE rn = 1

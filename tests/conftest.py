@@ -480,6 +480,16 @@ def _seed_sample_data(conn):
     conn.execute("""INSERT INTO market_breadth (trade_date, exchange, advances, declines, unchanged, advance_decline_ratio, new_52w_highs, new_52w_lows, total_traded, avg_delivery_pct, source)
                     VALUES ('2026-04-09', 'NSE', 900, 1100, 60, 0.82, 30, 25, 2060, 40.1, 'derived')""")
 
+    # TCS instrument + NIFTY NEXT 50 classification (for heatmap tab)
+    conn.execute("""INSERT INTO instruments (instrument_type, symbol, name, exchange, company_id, currency)
+                    VALUES ('stock', 'TCS', 'Tata Consultancy Services', 'NSE', 3, 'INR')""")
+    conn.execute("""INSERT INTO classifications (instrument_id, classification_type, classification_name, sort_order, effective_from)
+                    VALUES (7, 'index_constituent', 'NIFTY NEXT 50', 1, '2026-01-01')""")
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
+                    VALUES (7, '2026-04-09', 3700.0, 3750.0, 3680.0, 3720.0, 2000000, 'nse_bhavcopy', 'NSE')""")
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
+                    VALUES (7, '2026-04-10', 3720.0, 3780.0, 3710.0, 3760.0, 2200000, 'nse_bhavcopy', 'NSE')""")
+
     # Sector classifications
     conn.execute("""INSERT INTO classifications (instrument_id, classification_type, classification_name, sort_order)
                     VALUES (3, 'sector', 'Oil & Gas', 1)""")

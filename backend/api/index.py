@@ -16,24 +16,43 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/index", tags=["index"])
 
-# Map URL slugs to classification names
+# Map URL slugs to classification names (must match DB exactly)
 _INDEX_SLUG_MAP = {
     "nifty-50": "NIFTY 50",
-    "nifty-bank": "NIFTY Bank",
-    "nifty-next-50": "NIFTY Next 50",
+    "nifty-bank": "NIFTY BANK",
+    "nifty-next-50": "NIFTY NEXT 50",
     "nifty-it": "NIFTY IT",
-    "nifty-auto": "Nifty Auto",
-    "nifty-energy": "NIFTY Energy",
-    "nifty-psu-bank": "Nifty PSU Bank",
+    "nifty-auto": "NIFTY AUTO",
+    "nifty-energy": "NIFTY ENERGY",
+    "nifty-psu-bank": "NIFTY PSU BANK",
     "nifty-100": "NIFTY 100",
     "nifty-200": "NIFTY 200",
     "nifty-500": "NIFTY 500",
+    "nifty-pharma": "NIFTY PHARMA",
+    "nifty-metal": "NIFTY METAL",
+    "nifty-realty": "NIFTY REALTY",
+    "nifty-fmcg": "NIFTY FMCG",
+    "nifty-infra": "NIFTY INFRA",
+    "nifty-midcap-50": "NIFTY MIDCAP 50",
+    "nifty-midcap-100": "NIFTY MIDCAP 100",
+    "nifty-smallcap-100": "NIFTY SMALLCAP 100",
+    "nifty-private-bank": "NIFTY PRIVATE BANK",
+    "nifty-financial-services": "NIFTY FINANCIAL SERVICES",
+    "nifty-defence": "NIFTY INDIA DEFENCE",
+    "bse-sensex": "BSE SENSEX",
 }
 
 
 def _resolve_index_name(slug: str) -> str:
-    """Resolve URL slug to classification_name, or use as-is."""
-    return _INDEX_SLUG_MAP.get(slug.lower(), slug)
+    """
+    Resolve URL slug to classification_name.
+    Falls back to case-insensitive DB lookup if slug not in map.
+    """
+    mapped = _INDEX_SLUG_MAP.get(slug.lower())
+    if mapped:
+        return mapped
+    # Try as-is (user may pass exact DB name)
+    return slug
 
 
 @router.get("/{name}/constituents")

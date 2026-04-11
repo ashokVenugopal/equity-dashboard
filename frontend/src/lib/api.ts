@@ -202,3 +202,72 @@ export function getDerivativesFIIPositioning(limit = 10): Promise<{ positioning:
 export function getDerivativesOIChanges(instrument = "NIFTY"): Promise<{ instrument: string; oi_data: Record<string, unknown>[] }> {
   return apiFetch(`/api/derivatives/oi-changes?instrument=${instrument}`);
 }
+
+// ── Company endpoints ──
+
+export interface CompanyMeta {
+  company_id: number;
+  symbol: string;
+  name: string;
+  isin: string;
+  slug: string;
+  fy_end_month: number;
+  classifications: { classification_type: string; classification_name: string }[];
+}
+
+export interface FinancialConcept {
+  concept_code: string;
+  concept_name: string;
+  unit: string;
+  values: Record<string, number | null>;
+}
+
+export interface CompanyFinancials {
+  symbol: string;
+  statement_type: string;
+  periods: string[];
+  sections: Record<string, FinancialConcept[]>;
+}
+
+export function getCompanyMeta(symbol: string): Promise<CompanyMeta> {
+  return apiFetch(`/api/company/${symbol}`);
+}
+
+export function getCompanyFinancials(symbol: string, section?: string): Promise<CompanyFinancials> {
+  const qs = section ? `?section=${section}` : "";
+  return apiFetch(`/api/company/${symbol}/financials${qs}`);
+}
+
+export function getCompanyRatios(symbol: string): Promise<{ symbol: string; periods: string[]; ratios: FinancialConcept[] }> {
+  return apiFetch(`/api/company/${symbol}/ratios`);
+}
+
+export function getCompanyShareholding(symbol: string): Promise<{ symbol: string; periods: string[]; shareholding: FinancialConcept[] }> {
+  return apiFetch(`/api/company/${symbol}/shareholding`);
+}
+
+export function getCompanyPeers(symbol: string): Promise<{ symbol: string; sector: string | null; peers: { symbol: string; name: string }[] }> {
+  return apiFetch(`/api/company/${symbol}/peers`);
+}
+
+// ── Sectors endpoints ──
+
+export interface SectorPerformanceRow {
+  classification_name: string;
+  compute_date: string;
+  [timeframe: string]: string | number | null;
+}
+
+export function getSectorPerformance(type = "sector"): Promise<{ classification_type: string; metric: string; performance: SectorPerformanceRow[] }> {
+  return apiFetch(`/api/sectors/performance?classification_type=${type}`);
+}
+
+export function getSectorConstituents(type: string, name: string): Promise<{ classification_type: string; name: string; constituents: Constituent[]; count: number }> {
+  return apiFetch(`/api/sectors/${type}/${encodeURIComponent(name)}/constituents`);
+}
+
+// ── Search endpoints ──
+
+export function searchCompanies(q: string): Promise<{ query: string; results: { symbol: string; name: string; isin: string }[]; count: number }> {
+  return apiFetch(`/api/search/companies?q=${encodeURIComponent(q)}`);
+}

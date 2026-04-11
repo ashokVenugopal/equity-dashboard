@@ -42,6 +42,9 @@ from backend.api.index import router as index_router
 from backend.api.instrument import router as instrument_router
 from backend.api.derivatives import router as derivatives_router
 from backend.api.charts import router as charts_router
+from backend.api.company import router as company_router
+from backend.api.sectors import router as sectors_router
+from backend.api.search import router as search_router
 
 app.include_router(health_router)
 app.include_router(market_router)
@@ -50,6 +53,9 @@ app.include_router(index_router)
 app.include_router(instrument_router)
 app.include_router(derivatives_router)
 app.include_router(charts_router)
+app.include_router(company_router)
+app.include_router(sectors_router)
+app.include_router(search_router)
 
 logger.info("Equity Dashboard API initialized. Routes: %d", len(app.routes))
 

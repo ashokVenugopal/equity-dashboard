@@ -1,7 +1,26 @@
-export default function SectorsPage() {
-  return (
-    <div className="text-muted text-xs border border-border rounded p-8 text-center bg-surface">
-      Sectors &amp; Themes — Phase 3
-    </div>
-  );
+import { getSectorPerformance } from "@/lib/api";
+import { SectorsPageClient } from "./SectorsPageClient";
+
+export const dynamic = "force-dynamic";
+
+export default async function SectorsPage() {
+  try {
+    const [sectorData, themeData] = await Promise.all([
+      getSectorPerformance("sector"),
+      getSectorPerformance("theme"),
+    ]);
+
+    return (
+      <SectorsPageClient
+        sectors={sectorData.performance}
+        themes={themeData.performance}
+      />
+    );
+  } catch (e) {
+    return (
+      <div className="text-negative text-xs border border-negative/30 rounded p-3 bg-negative/5">
+        Failed to load sector data. Ensure the backend is running.
+      </div>
+    );
+  }
 }

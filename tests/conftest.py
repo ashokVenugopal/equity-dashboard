@@ -293,6 +293,19 @@ def _bootstrap_schema(conn):
             LIMIT 1
         );
 
+        CREATE TABLE IF NOT EXISTS sector_performance (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            classification_type TEXT NOT NULL,
+            classification_name TEXT NOT NULL,
+            compute_date        TEXT NOT NULL,
+            timeframe           TEXT NOT NULL,
+            metric              TEXT NOT NULL,
+            value               REAL NOT NULL,
+            source              TEXT NOT NULL DEFAULT 'derived',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (classification_type, classification_name, compute_date, timeframe, metric, source)
+        );
+
         -- best_technicals view
         CREATE VIEW IF NOT EXISTS best_technicals AS
         SELECT dt.*, i.instrument_type, i.symbol, i.name AS instrument_name
@@ -457,6 +470,22 @@ def _seed_sample_data(conn):
                     VALUES ('2026-04-10', 'NSE', 1200, 800, 50, 1.5, 45, 12, 2050, 42.5, 'derived')""")
     conn.execute("""INSERT INTO market_breadth (trade_date, exchange, advances, declines, unchanged, advance_decline_ratio, new_52w_highs, new_52w_lows, total_traded, avg_delivery_pct, source)
                     VALUES ('2026-04-09', 'NSE', 900, 1100, 60, 0.82, 30, 25, 2060, 40.1, 'derived')""")
+
+    # Sector classifications
+    conn.execute("""INSERT INTO classifications (instrument_id, classification_type, classification_name, sort_order)
+                    VALUES (3, 'sector', 'Oil & Gas', 1)""")
+    conn.execute("""INSERT INTO classifications (instrument_id, classification_type, classification_name, sort_order)
+                    VALUES (4, 'sector', 'Banking Services', 1)""")
+
+    # Sector performance
+    conn.execute("""INSERT INTO sector_performance (classification_type, classification_name, compute_date, timeframe, metric, value)
+                    VALUES ('sector', 'Oil & Gas', '2026-04-10', '1w', 'avg_return_pct', 2.5)""")
+    conn.execute("""INSERT INTO sector_performance (classification_type, classification_name, compute_date, timeframe, metric, value)
+                    VALUES ('sector', 'Oil & Gas', '2026-04-10', '4w', 'avg_return_pct', 5.1)""")
+    conn.execute("""INSERT INTO sector_performance (classification_type, classification_name, compute_date, timeframe, metric, value)
+                    VALUES ('sector', 'Banking Services', '2026-04-10', '1w', 'avg_return_pct', -1.2)""")
+    conn.execute("""INSERT INTO sector_performance (classification_type, classification_name, compute_date, timeframe, metric, value)
+                    VALUES ('sector', 'Banking Services', '2026-04-10', '4w', 'avg_return_pct', 3.0)""")
 
     # Price history — stocks (for constituents)
     conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)

@@ -61,16 +61,22 @@ def heatmap_data(index: str):
                 FROM best_per_date WHERE src_rn = 1
             ),
             market_caps AS (
-                SELECT bf.company_id, bf.value AS market_cap
-                FROM best_facts_consolidated bf
-                JOIN concepts co ON bf.concept_id = co.concept_id
+                SELECT f.company_id, f.value AS market_cap
+                FROM facts f
+                JOIN sources s ON f.source_id = s.source_id
+                JOIN concepts co ON f.concept_id = co.concept_id
                 WHERE co.concept_code = 'market_cap'
-                  AND bf.fact_id = (
-                      SELECT bf2.fact_id FROM best_facts_consolidated bf2
-                      JOIN concepts co2 ON bf2.concept_id = co2.concept_id
+                  AND f.company_id IN (SELECT company_id FROM constituents)
+                  AND f.fact_id = (
+                      SELECT f2.fact_id FROM facts f2
+                      JOIN sources s2 ON f2.source_id = s2.source_id
+                      JOIN concepts co2 ON f2.concept_id = co2.concept_id
                       WHERE co2.concept_code = 'market_cap'
-                        AND bf2.company_id = bf.company_id
-                      ORDER BY bf2.period_end_date DESC
+                        AND f2.company_id = f.company_id
+                      ORDER BY f2.period_end_date DESC,
+                          CASE s2.derivation WHEN 'original' THEN 1 WHEN 'aggregated' THEN 2 ELSE 3 END,
+                          CASE s2.file_type WHEN 'screener_excel' THEN 1 WHEN 'screener_web' THEN 2 ELSE 3 END,
+                          f2.created_at DESC
                       LIMIT 1
                   )
             )

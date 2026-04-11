@@ -8,7 +8,7 @@ import logging
 import time
 from typing import Optional
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 
 from backend.core.connection import get_pipeline_connection
 
@@ -23,6 +23,7 @@ def put_call_ratio(
     limit: int = Query(10, ge=1, le=60),
 ):
     """Put-Call Ratio derived from options chain data."""
+    logger.info("GET /api/derivatives/pcr — instrument=%s, limit=%d", instrument, limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -46,6 +47,11 @@ def put_call_ratio(
         elapsed = time.time() - t0
         logger.info("GET /api/derivatives/pcr — %d rows, %.3fs", len(result), elapsed)
         return {"instrument": instrument.upper(), "pcr_data": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/derivatives/pcr — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -53,6 +59,7 @@ def put_call_ratio(
 @router.get("/fii-positioning")
 def fii_positioning(limit: int = Query(10, ge=1, le=60)):
     """FII long/short positioning across index futures, index options, stock futures, stock options."""
+    logger.info("GET /api/derivatives/fii-positioning — limit=%d", limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -75,6 +82,11 @@ def fii_positioning(limit: int = Query(10, ge=1, le=60)):
         elapsed = time.time() - t0
         logger.info("GET /api/derivatives/fii-positioning — %d rows, %.3fs", len(result), elapsed)
         return {"positioning": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/derivatives/fii-positioning — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -85,6 +97,7 @@ def oi_changes(
     limit: int = Query(10, ge=1, le=60),
 ):
     """Series-level OI changes (futures + options) with day-over-day percentage."""
+    logger.info("GET /api/derivatives/oi-changes — instrument=%s, limit=%d", instrument, limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -101,6 +114,11 @@ def oi_changes(
         elapsed = time.time() - t0
         logger.info("GET /api/derivatives/oi-changes — %d rows, %.3fs", len(result), elapsed)
         return {"instrument": instrument.upper(), "oi_data": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/derivatives/oi-changes — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -108,6 +126,7 @@ def oi_changes(
 @router.get("/participant/{date}")
 def participant_positioning(date: str):
     """All participant positioning for a given date (FII, DII, CLIENT, PRO)."""
+    logger.info("GET /api/derivatives/participant/%s", date)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -123,5 +142,10 @@ def participant_positioning(date: str):
         elapsed = time.time() - t0
         logger.info("GET /api/derivatives/participant/%s — %d rows, %.3fs", date, len(result), elapsed)
         return {"date": date, "positioning": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/derivatives/participant/%s — failed: %s", date, e)
+        raise
     finally:
         conn.close()

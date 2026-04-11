@@ -14,8 +14,10 @@ router = APIRouter(tags=["health"])
 @router.get("/api/health")
 def health_check():
     """Health check with database stats."""
+    logger.info("GET /api/health — checking databases...")
     t0 = time.time()
     result = {"status": "ok", "pipeline_db": None, "observations_db": None}
+    errors = []
 
     try:
         conn = get_pipeline_connection()
@@ -25,12 +27,16 @@ def health_check():
             try:
                 row = conn.execute(f"SELECT COUNT(*) as cnt FROM {table}").fetchone()
                 stats[table] = row["cnt"]
-            except Exception:
+            except Exception as e:
+                logger.error("Health check — failed to count table %s: %s", table, e)
                 stats[table] = "error"
+                errors.append(f"pipeline.{table}")
         result["pipeline_db"] = {"connected": True, "tables": stats}
         conn.close()
     except Exception as e:
+        logger.error("Health check — pipeline DB connection failed: %s", e)
         result["pipeline_db"] = {"connected": False, "error": str(e)}
+        errors.append("pipeline_connection")
 
     try:
         conn = get_observations_connection()
@@ -38,9 +44,15 @@ def health_check():
         result["observations_db"] = {"connected": True, "observations_count": row["cnt"]}
         conn.close()
     except Exception as e:
+        logger.error("Health check — observations DB connection failed: %s", e)
         result["observations_db"] = {"connected": False, "error": str(e)}
+        errors.append("observations_connection")
 
     elapsed = time.time() - t0
     result["response_time_ms"] = round(elapsed * 1000, 1)
-    logger.info("GET /api/health — %.3fs", elapsed)
+    logger.info(
+        "GET /api/health — %d errors, %.3fs%s",
+        len(errors), elapsed,
+        f" [failed: {', '.join(errors)}]" if errors else "",
+    )
     return result

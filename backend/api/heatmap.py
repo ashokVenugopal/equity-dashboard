@@ -21,6 +21,7 @@ def heatmap_data(index: str):
     Treemap heatmap for an index.
     Returns each constituent with market_cap (size) and daily_change_pct (color).
     """
+    logger.info("GET /api/heatmap/%s", index)
     t0 = time.time()
     # Resolve slug
     from backend.api.index import _resolve_index_name
@@ -96,5 +97,10 @@ def heatmap_data(index: str):
         elapsed = time.time() - t0
         logger.info("GET /api/heatmap/%s — %d blocks, %.3fs", index, len(blocks), elapsed)
         return {"index_name": index_name, "blocks": blocks}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/heatmap/%s — failed: %s", index, e)
+        raise
     finally:
         conn.close()

@@ -41,6 +41,7 @@ def index_constituents(name: str):
     """
     Get constituent stocks for an index with latest price, change, and key metrics.
     """
+    logger.info("GET /api/index/%s/constituents", name)
     t0 = time.time()
     index_name = _resolve_index_name(name)
     conn = get_pipeline_connection()
@@ -98,6 +99,11 @@ def index_constituents(name: str):
         elapsed = time.time() - t0
         logger.info("GET /api/index/%s/constituents — %d stocks, %.3fs", name, len(result), elapsed)
         return {"index_name": index_name, "constituents": result, "count": len(result)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/index/%s/constituents — failed: %s", name, e)
+        raise
     finally:
         conn.close()
 
@@ -105,6 +111,7 @@ def index_constituents(name: str):
 @router.get("/{name}/movers")
 def index_movers(name: str, limit: int = Query(5, ge=1, le=20)):
     """Top and bottom movers by daily change percentage."""
+    logger.info("GET /api/index/%s/movers — limit=%d", name, limit)
     t0 = time.time()
     index_name = _resolve_index_name(name)
     conn = get_pipeline_connection()
@@ -157,6 +164,11 @@ def index_movers(name: str, limit: int = Query(5, ge=1, le=20)):
         elapsed = time.time() - t0
         logger.info("GET /api/index/%s/movers — %d gainers, %d losers, %.3fs", name, len(gainers), len(losers), elapsed)
         return {"index_name": index_name, "gainers": gainers, "losers": losers}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/index/%s/movers — failed: %s", name, e)
+        raise
     finally:
         conn.close()
 
@@ -164,6 +176,7 @@ def index_movers(name: str, limit: int = Query(5, ge=1, le=20)):
 @router.get("/{name}/technicals")
 def index_technicals(name: str):
     """Technical indicators (DMA 50/200, RSI, 52W high/low) for each constituent."""
+    logger.info("GET /api/index/%s/technicals", name)
     t0 = time.time()
     index_name = _resolve_index_name(name)
     conn = get_pipeline_connection()
@@ -207,6 +220,11 @@ def index_technicals(name: str):
         elapsed = time.time() - t0
         logger.info("GET /api/index/%s/technicals — %d stocks, %.3fs", name, len(result), elapsed)
         return {"index_name": index_name, "technicals": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/index/%s/technicals — failed: %s", name, e)
+        raise
     finally:
         conn.close()
 
@@ -214,6 +232,7 @@ def index_technicals(name: str):
 @router.get("/{name}/breadth")
 def index_breadth(name: str):
     """Advances/declines within an index based on latest daily change."""
+    logger.info("GET /api/index/%s/breadth", name)
     t0 = time.time()
     index_name = _resolve_index_name(name)
     conn = get_pipeline_connection()
@@ -249,5 +268,10 @@ def index_breadth(name: str):
         elapsed = time.time() - t0
         logger.info("GET /api/index/%s/breadth — %.3fs", name, elapsed)
         return {"index_name": index_name, "breadth": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/index/%s/breadth — failed: %s", name, e)
+        raise
     finally:
         conn.close()

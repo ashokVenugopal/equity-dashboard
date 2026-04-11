@@ -107,6 +107,7 @@ def export_chart(
     Generate a standalone HTML chart for the given instrument.
     Returns complete HTML that can be saved as a file or embedded in Streamlit.
     """
+    logger.info("GET /api/charts/export — symbol=%s, start_date=%s, end_date=%s, limit=%d", symbol, start_date, end_date, limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -160,5 +161,10 @@ def export_chart(
         elapsed = time.time() - t0
         logger.info("GET /api/charts/export?symbol=%s — %d candles, %.3fs", symbol, len(candles), elapsed)
         return HTMLResponse(content=html)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/charts/export?symbol=%s — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()

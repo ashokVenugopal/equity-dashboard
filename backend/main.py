@@ -24,6 +24,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Request logging middleware
+from backend.core.middleware import RequestLoggingMiddleware
+app.add_middleware(RequestLoggingMiddleware)
+
 # CORS for Next.js frontend
 server_config = get_server_config()
 app.add_middleware(

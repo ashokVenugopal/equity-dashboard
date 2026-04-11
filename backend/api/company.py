@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/company", tags=["company"])
 @router.get("/{symbol}")
 def company_meta(symbol: str):
     """Company metadata: name, ISIN, sector, FY end month."""
+    logger.info("GET /api/company/%s", symbol)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -48,6 +49,11 @@ def company_meta(symbol: str):
         elapsed = time.time() - t0
         logger.info("GET /api/company/%s — %.3fs", symbol, elapsed)
         return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/company/%s — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()
 
@@ -62,6 +68,7 @@ def company_financials(
     Financial data pivoted: concepts as rows, period_end_dates as columns.
     Returns structured JSON for screener.in-style table rendering.
     """
+    logger.info("GET /api/company/%s/financials — statement_type=%s, section=%s", symbol, statement_type, section)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -131,6 +138,11 @@ def company_financials(
         logger.info("GET /api/company/%s/financials — %d concepts, %d periods, %.3fs",
                      symbol, sum(len(v) for v in sections_data.values()), len(periods), elapsed)
         return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/company/%s/financials — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()
 
@@ -138,6 +150,7 @@ def company_financials(
 @router.get("/{symbol}/ratios")
 def company_ratios(symbol: str):
     """Key ratios across annual periods."""
+    logger.info("GET /api/company/%s/ratios", symbol)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -172,6 +185,11 @@ def company_ratios(symbol: str):
             "periods": sorted(periods_set, reverse=True),
             "ratios": list(ratios.values()),
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/company/%s/ratios — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()
 
@@ -179,6 +197,7 @@ def company_ratios(symbol: str):
 @router.get("/{symbol}/shareholding")
 def company_shareholding(symbol: str):
     """Shareholding pattern (sh_* concepts) across periods."""
+    logger.info("GET /api/company/%s/shareholding", symbol)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -213,6 +232,11 @@ def company_shareholding(symbol: str):
             "periods": sorted(periods_set, reverse=True),
             "shareholding": list(holdings.values()),
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/company/%s/shareholding — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()
 
@@ -220,6 +244,7 @@ def company_shareholding(symbol: str):
 @router.get("/{symbol}/peers")
 def company_peers(symbol: str, limit: int = Query(10, ge=1, le=30)):
     """Companies in the same sector."""
+    logger.info("GET /api/company/%s/peers — limit=%d", symbol, limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -258,5 +283,10 @@ def company_peers(symbol: str, limit: int = Query(10, ge=1, le=30)):
             "sector": sector["classification_name"],
             "peers": [dict(r) for r in rows],
         }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/company/%s/peers — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()

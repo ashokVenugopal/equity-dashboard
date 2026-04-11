@@ -27,6 +27,7 @@ def sector_performance(
     Multi-timeframe performance for all groups of a given classification type.
     If no timeframe specified, returns latest data for all timeframes pivoted.
     """
+    logger.info("GET /api/sectors/performance — classification_type=%s, timeframe=%s, metric=%s", classification_type, timeframe, metric)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -76,6 +77,11 @@ def sector_performance(
         elapsed = time.time() - t0
         logger.info("GET /api/sectors/performance — %d rows, %.3fs", len(result), elapsed)
         return {"classification_type": classification_type, "metric": metric, "performance": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/sectors/performance — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -83,6 +89,7 @@ def sector_performance(
 @router.get("/{classification_type}/{name}/constituents")
 def sector_constituents(classification_type: str, name: str):
     """Stocks belonging to a sector/theme/group with latest price data."""
+    logger.info("GET /api/sectors/%s/%s/constituents", classification_type, name)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -111,5 +118,10 @@ def sector_constituents(classification_type: str, name: str):
         logger.info("GET /api/sectors/%s/%s/constituents — %d stocks, %.3fs",
                      classification_type, name, len(result), elapsed)
         return {"classification_type": classification_type, "name": name, "constituents": result, "count": len(result)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/sectors/%s/%s/constituents — failed: %s", classification_type, name, e)
+        raise
     finally:
         conn.close()

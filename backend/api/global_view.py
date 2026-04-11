@@ -7,7 +7,7 @@ Built on top of the existing /api/market/global but with grouping.
 import logging
 import time
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException
 
 from backend.core.connection import get_pipeline_connection
 
@@ -19,6 +19,7 @@ router = APIRouter(prefix="/api/global", tags=["global"])
 @router.get("/overview")
 def global_overview():
     """All non-stock instruments grouped by type with latest prices."""
+    logger.info("GET /api/global/overview")
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -46,6 +47,11 @@ def global_overview():
         elapsed = time.time() - t0
         logger.info("GET /api/global/overview — %d instruments, %.3fs", len(rows), elapsed)
         return {"groups": grouped, "total": len(rows)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/global/overview — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -53,24 +59,28 @@ def global_overview():
 @router.get("/indices")
 def global_indices():
     """Global indices only."""
+    logger.info("GET /api/global/indices")
     return _get_by_type("index")
 
 
 @router.get("/commodities")
 def global_commodities():
     """Commodities only."""
+    logger.info("GET /api/global/commodities")
     return _get_by_type("commodity")
 
 
 @router.get("/forex")
 def global_forex():
     """Forex pairs only."""
+    logger.info("GET /api/global/forex")
     return _get_by_type("forex")
 
 
 @router.get("/adrs")
 def global_adrs():
     """ADRs only."""
+    logger.info("GET /api/global/adrs")
     return _get_by_type("adr")
 
 
@@ -97,5 +107,10 @@ def _get_by_type(instrument_type: str):
         elapsed = time.time() - t0
         logger.info("GET /api/global/%s — %d instruments, %.3fs", instrument_type, len(result), elapsed)
         return {"instrument_type": instrument_type, "instruments": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/global/%s — failed: %s", instrument_type, e)
+        raise
     finally:
         conn.close()

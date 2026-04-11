@@ -24,6 +24,7 @@ def price_history(
     limit: int = Query(365, ge=1, le=2000),
 ):
     """OHLCV price history for charting. Returns best-source prices."""
+    logger.info("GET /api/instrument/%s/price-history — start_date=%s, end_date=%s, limit=%d", symbol, start_date, end_date, limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -57,6 +58,11 @@ def price_history(
         elapsed = time.time() - t0
         logger.info("GET /api/instrument/%s/price-history — %d rows, %.3fs", symbol, len(rows), elapsed)
         return {"symbol": symbol.upper(), "prices": rows, "count": len(rows)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/instrument/%s/price-history — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()
 
@@ -67,6 +73,7 @@ def instrument_technicals(
     date: Optional[str] = Query(None, description="As-of date; defaults to latest"),
 ):
     """Technical indicators for an instrument."""
+    logger.info("GET /api/instrument/%s/technicals — date=%s", symbol, date)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -98,5 +105,10 @@ def instrument_technicals(
         elapsed = time.time() - t0
         logger.info("GET /api/instrument/%s/technicals — %d indicators, %.3fs", symbol, len(result), elapsed)
         return {"symbol": symbol.upper(), "technicals": result}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/instrument/%s/technicals — failed: %s", symbol, e)
+        raise
     finally:
         conn.close()

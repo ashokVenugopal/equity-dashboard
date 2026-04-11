@@ -9,7 +9,7 @@ import json
 import logging
 import time
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from backend.core.connection import get_observations_connection
@@ -24,6 +24,7 @@ def export_observations(
     format: str = Query("json", description="json or csv"),
 ):
     """Export all observations as JSON or CSV."""
+    logger.info("GET /api/export/observations — format=%s", format)
     t0 = time.time()
     conn = get_observations_connection()
     try:
@@ -50,5 +51,10 @@ def export_observations(
             )
 
         return {"observations": data, "count": len(data)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/export/observations — failed: %s", e)
+        raise
     finally:
         conn.close()

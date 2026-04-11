@@ -23,14 +23,39 @@ def market_overview():
     Market overview: latest price + change for key indices, plus FII/DII summary and breadth.
     Returns a combined payload for the home page.
     """
+    logger.info("GET /api/market/overview — fetching indices, flows, breadth...")
     t0 = time.time()
+    errors = []
     conn = get_pipeline_connection()
     try:
-        indices = _get_index_cards(conn)
-        flows = _get_latest_flows(conn)
-        breadth = _get_latest_breadth(conn)
+        try:
+            indices = _get_index_cards(conn)
+        except Exception as e:
+            logger.error("Failed to fetch index cards: %s", e)
+            indices = []
+            errors.append("index_cards")
+
+        try:
+            flows = _get_latest_flows(conn)
+        except Exception as e:
+            logger.error("Failed to fetch latest flows: %s", e)
+            flows = []
+            errors.append("flows")
+
+        try:
+            breadth = _get_latest_breadth(conn)
+        except Exception as e:
+            logger.error("Failed to fetch market breadth: %s", e)
+            breadth = None
+            errors.append("breadth")
+
         elapsed = time.time() - t0
-        logger.info("GET /api/market/overview — %d indices, %.3fs", len(indices), elapsed)
+        logger.info(
+            "GET /api/market/overview — %d indices, %d flows, breadth=%s, %d errors, %.3fs%s",
+            len(indices), len(flows), "yes" if breadth else "no",
+            len(errors), elapsed,
+            f" [failed: {', '.join(errors)}]" if errors else "",
+        )
         return {"indices": indices, "flows": flows, "breadth": breadth}
     finally:
         conn.close()
@@ -43,13 +68,18 @@ def market_flows(
     limit: int = Query(10, ge=1, le=100),
 ):
     """Latest institutional flows."""
+    logger.info("GET /api/market/flows — participant=%s, period=%s, limit=%d...",
+                participant_type or "all", period_type, limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
         rows = _query_flows(conn, participant_type, period_type, limit)
         elapsed = time.time() - t0
-        logger.info("GET /api/market/flows — %d rows, %.3fs", len(rows), elapsed)
+        logger.info("GET /api/market/flows — %d rows returned, %.3fs", len(rows), elapsed)
         return {"flows": rows}
+    except Exception as e:
+        logger.error("GET /api/market/flows — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -64,6 +94,8 @@ def market_flows_history(
     limit: int = Query(60, ge=1, le=365),
 ):
     """Flow time series for charting."""
+    logger.info("GET /api/market/flows/history — segment=%s, period=%s, range=%s..%s...",
+                segment, period_type, start_date or "earliest", end_date or "latest")
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -91,6 +123,9 @@ def market_flows_history(
         elapsed = time.time() - t0
         logger.info("GET /api/market/flows/history — %d rows, %.3fs", len(rows), elapsed)
         return {"flows": rows}
+    except Exception as e:
+        logger.error("GET /api/market/flows/history — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -98,6 +133,7 @@ def market_flows_history(
 @router.get("/breadth")
 def market_breadth(limit: int = Query(10, ge=1, le=60)):
     """Recent market breadth data (advances, declines, 52w highs/lows)."""
+    logger.info("GET /api/market/breadth — limit=%d...", limit)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -113,6 +149,9 @@ def market_breadth(limit: int = Query(10, ge=1, le=60)):
         elapsed = time.time() - t0
         logger.info("GET /api/market/breadth — %d rows, %.3fs", len(result), elapsed)
         return {"breadth": result}
+    except Exception as e:
+        logger.error("GET /api/market/breadth — failed: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -120,6 +159,7 @@ def market_breadth(limit: int = Query(10, ge=1, le=60)):
 @router.get("/global")
 def market_global():
     """Latest prices for global indices, commodities, forex, bonds, crypto, ADRs."""
+    logger.info("GET /api/market/global — fetching non-stock instruments...")
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -148,9 +188,17 @@ def market_global():
                 i.symbol
         """).fetchall()
         result = [dict(r) for r in rows]
+        without_price = [r["symbol"] for r in result if r["close"] is None]
         elapsed = time.time() - t0
-        logger.info("GET /api/market/global — %d instruments, %.3fs", len(result), elapsed)
+        logger.info(
+            "GET /api/market/global — %d instruments (%d without prices), %.3fs%s",
+            len(result), len(without_price), elapsed,
+            f" [no price: {', '.join(without_price[:20])}]" if without_price else "",
+        )
         return {"instruments": result}
+    except Exception as e:
+        logger.error("GET /api/market/global — failed: %s", e)
+        raise
     finally:
         conn.close()
 

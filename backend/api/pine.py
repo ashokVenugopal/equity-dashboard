@@ -32,6 +32,7 @@ def pine_execute(body: PineExecuteRequest):
     Execute a Pine Script against an instrument's price history.
     Returns computed indicator values per date.
     """
+    logger.info("POST /api/pine/execute — symbol=%s, limit=%d", body.symbol, body.limit)
     t0 = time.time()
 
     # Compile
@@ -64,6 +65,11 @@ def pine_execute(body: PineExecuteRequest):
         """, (instrument["instrument_id"], body.limit)).fetchall()
 
         price_data = [dict(r) for r in rows]
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("POST /api/pine/execute — failed fetching data: %s", e)
+        raise
     finally:
         conn.close()
 
@@ -74,6 +80,7 @@ def pine_execute(body: PineExecuteRequest):
     try:
         result = execute(ops, price_data)
     except Exception as e:
+        logger.error("POST /api/pine/execute — runtime failed: %s", e)
         raise HTTPException(status_code=400, detail=f"Runtime error: {e}")
 
     elapsed = time.time() - t0
@@ -89,4 +96,5 @@ def pine_execute(body: PineExecuteRequest):
 @router.get("/builtins")
 def pine_builtins():
     """List all available built-in functions."""
+    logger.info("GET /api/pine/builtins")
     return {"builtins": BUILTINS}

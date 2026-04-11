@@ -45,6 +45,8 @@ from backend.api.charts import router as charts_router
 from backend.api.company import router as company_router
 from backend.api.sectors import router as sectors_router
 from backend.api.search import router as search_router
+from backend.api.heatmap import router as heatmap_router
+from backend.api.global_view import router as global_view_router
 
 app.include_router(health_router)
 app.include_router(market_router)
@@ -56,6 +58,8 @@ app.include_router(charts_router)
 app.include_router(company_router)
 app.include_router(sectors_router)
 app.include_router(search_router)
+app.include_router(heatmap_router)
+app.include_router(global_view_router)
 
 logger.info("Equity Dashboard API initialized. Routes: %d", len(app.routes))
 

@@ -271,3 +271,41 @@ export function getSectorConstituents(type: string, name: string): Promise<{ cla
 export function searchCompanies(q: string): Promise<{ query: string; results: { symbol: string; name: string; isin: string }[]; count: number }> {
   return apiFetch(`/api/search/companies?q=${encodeURIComponent(q)}`);
 }
+
+export function searchFilter(expression: string, limit = 50): Promise<{
+  expression: string;
+  parsed_conditions: { concept_code: string; op: string; value: number; raw: string }[];
+  parse_errors: string[];
+  results: Record<string, unknown>[];
+  count: number;
+  elapsed_ms: number;
+}> {
+  return apiFetch("/api/search/filter", {
+    method: "POST",
+    body: JSON.stringify({ expression, limit }),
+  });
+}
+
+export function searchSuggestions(q: string): Promise<{ query: string; suggestions: { type: string; text: string; symbol?: string; code?: string }[] }> {
+  return apiFetch(`/api/search/suggestions?q=${encodeURIComponent(q)}`);
+}
+
+// ── Heatmap endpoints ──
+
+export interface HeatmapBlock {
+  symbol: string;
+  name: string;
+  market_cap: number | null;
+  close: number | null;
+  change_pct: number | null;
+}
+
+export function getHeatmap(index: string): Promise<{ index_name: string; blocks: HeatmapBlock[] }> {
+  return apiFetch(`/api/heatmap/${index}`);
+}
+
+// ── Global endpoints ──
+
+export function getGlobalOverview(): Promise<{ groups: Record<string, GlobalInstrument[]>; total: number }> {
+  return apiFetch("/api/global/overview");
+}

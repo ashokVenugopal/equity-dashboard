@@ -1,0 +1,11 @@
+pipeline:
+  db_path: ../../equity-experiments-2/data/pipeline/facts.sqlite3
+
+observations:
+  db_path: data/observations.sqlite3
+
+server:
+  host: 0.0.0.0
+  port: 8000
+  cors_origins:
+    - http://localhost:3000

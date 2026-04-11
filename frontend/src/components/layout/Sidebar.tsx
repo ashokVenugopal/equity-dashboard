@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   { href: "/sectors", label: "Sectors", icon: "▦" },
   { href: "/heatmaps", label: "Heatmaps", icon: "▥" },
   { href: "/global", label: "Global", icon: "◎" },
+  { href: "/screener", label: "Screener", icon: "⊞" },
+  { href: "/observations", label: "Notes", icon: "✎" },
 ];
 
 export function Sidebar() {
@@ -19,7 +21,7 @@ export function Sidebar() {
   return (
     <nav className="w-44 border-r border-border bg-surface shrink-0 flex flex-col py-2">
       {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href;
+        const active = pathname === item.href || (item.href !== "/" && pathname.startsWith(item.href));
         return (
           <Link
             key={item.href}

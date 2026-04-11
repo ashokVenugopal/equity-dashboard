@@ -38,10 +38,18 @@ app.add_middleware(
 from backend.api.health import router as health_router
 from backend.api.market import router as market_router
 from backend.api.observations import router as observations_router
+from backend.api.index import router as index_router
+from backend.api.instrument import router as instrument_router
+from backend.api.derivatives import router as derivatives_router
+from backend.api.charts import router as charts_router
 
 app.include_router(health_router)
 app.include_router(market_router)
 app.include_router(observations_router)
+app.include_router(index_router)
+app.include_router(instrument_router)
+app.include_router(derivatives_router)
+app.include_router(charts_router)
 
 logger.info("Equity Dashboard API initialized. Routes: %d", len(app.routes))
 

@@ -232,6 +232,82 @@ def _bootstrap_schema(conn):
             UNIQUE (instrument_id, trade_date, indicator_code, source)
         );
 
+        CREATE TABLE IF NOT EXISTS fo_participant_positioning (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_date          TEXT NOT NULL,
+            participant_type    TEXT NOT NULL,
+            instrument_category TEXT NOT NULL,
+            long_contracts      INTEGER,
+            short_contracts     INTEGER,
+            long_value          REAL,
+            short_value         REAL,
+            source              TEXT NOT NULL DEFAULT 'nse_website',
+            created_at          TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (trade_date, participant_type, instrument_category, source)
+        );
+
+        CREATE TABLE IF NOT EXISTS options_chain_snapshot (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_symbol TEXT NOT NULL,
+            trade_date        TEXT NOT NULL,
+            expiry_date       TEXT NOT NULL,
+            strike_price      REAL NOT NULL,
+            option_type       TEXT NOT NULL,
+            open_interest     INTEGER,
+            change_in_oi      INTEGER,
+            volume            INTEGER,
+            last_price        REAL,
+            implied_volatility REAL,
+            underlying_value  REAL,
+            source            TEXT NOT NULL DEFAULT 'nse_website',
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (instrument_symbol, trade_date, expiry_date, strike_price, option_type, source)
+        );
+
+        CREATE TABLE IF NOT EXISTS fo_series_oi (
+            id                INTEGER PRIMARY KEY AUTOINCREMENT,
+            instrument_symbol TEXT NOT NULL,
+            trade_date        TEXT NOT NULL,
+            expiry_date       TEXT NOT NULL,
+            futures_oi        INTEGER,
+            futures_price     REAL,
+            options_oi        INTEGER,
+            total_oi          INTEGER,
+            total_volume      INTEGER,
+            source            TEXT NOT NULL DEFAULT 'nse_website',
+            created_at        TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (instrument_symbol, trade_date, expiry_date, source)
+        );
+
+        -- best_fo_participant_positioning view
+        CREATE VIEW IF NOT EXISTS best_fo_participant_positioning AS
+        SELECT fp.*
+        FROM fo_participant_positioning fp
+        WHERE fp.id = (
+            SELECT fp2.id FROM fo_participant_positioning fp2
+            WHERE fp2.trade_date = fp.trade_date
+              AND fp2.participant_type = fp.participant_type
+              AND fp2.instrument_category = fp.instrument_category
+            ORDER BY CASE fp2.source WHEN 'nse_website' THEN 1 WHEN 'manual' THEN 2 ELSE 3 END,
+                     fp2.created_at DESC
+            LIMIT 1
+        );
+
+        -- best_technicals view
+        CREATE VIEW IF NOT EXISTS best_technicals AS
+        SELECT dt.*, i.instrument_type, i.symbol, i.name AS instrument_name
+        FROM derived_technicals dt
+        JOIN instruments i ON dt.instrument_id = i.instrument_id
+        WHERE dt.id = (
+            SELECT dt2.id FROM derived_technicals dt2
+            WHERE dt2.instrument_id = dt.instrument_id
+              AND dt2.trade_date = dt.trade_date
+              AND dt2.indicator_code = dt.indicator_code
+            ORDER BY CASE dt2.source WHEN 'derived' THEN 1 WHEN 'external' THEN 2 ELSE 3 END,
+                     dt2.created_at DESC
+            LIMIT 1
+        );
+
         -- Simplified best_prices view
         CREATE VIEW IF NOT EXISTS best_prices AS
         SELECT ph.*,
@@ -381,6 +457,52 @@ def _seed_sample_data(conn):
                     VALUES ('2026-04-10', 'NSE', 1200, 800, 50, 1.5, 45, 12, 2050, 42.5, 'derived')""")
     conn.execute("""INSERT INTO market_breadth (trade_date, exchange, advances, declines, unchanged, advance_decline_ratio, new_52w_highs, new_52w_lows, total_traded, avg_delivery_pct, source)
                     VALUES ('2026-04-09', 'NSE', 900, 1100, 60, 0.82, 30, 25, 2060, 40.1, 'derived')""")
+
+    # Price history — stocks (for constituents)
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
+                    VALUES (3, '2026-04-09', 1380.0, 1400.0, 1370.0, 1390.0, 5000000, 'nse_bhavcopy', 'NSE')""")
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
+                    VALUES (3, '2026-04-10', 1390.0, 1420.0, 1385.0, 1415.0, 6000000, 'nse_bhavcopy', 'NSE')""")
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
+                    VALUES (4, '2026-04-09', 1750.0, 1770.0, 1740.0, 1760.0, 3000000, 'nse_bhavcopy', 'NSE')""")
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
+                    VALUES (4, '2026-04-10', 1760.0, 1780.0, 1745.0, 1750.0, 3500000, 'nse_bhavcopy', 'NSE')""")
+
+    # Derived technicals for stocks
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (3, '2026-04-10', 'dma_50', 1350.0)""")
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (3, '2026-04-10', 'dma_200', 1280.0)""")
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (3, '2026-04-10', 'rsi_14', 62.5)""")
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (3, '2026-04-10', 'high_52w', 1520.0)""")
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (3, '2026-04-10', 'low_52w', 1100.0)""")
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (3, '2026-04-10', 'daily_change_pct', 1.80)""")
+    conn.execute("""INSERT INTO derived_technicals (instrument_id, trade_date, indicator_code, value)
+                    VALUES (4, '2026-04-10', 'daily_change_pct', -0.57)""")
+
+    # F&O participant positioning
+    conn.execute("""INSERT INTO fo_participant_positioning (trade_date, participant_type, instrument_category, long_contracts, short_contracts, long_value, short_value)
+                    VALUES ('2026-04-10', 'FII', 'INDEX_FUTURES', 120000, 180000, 15000.0, 22500.0)""")
+    conn.execute("""INSERT INTO fo_participant_positioning (trade_date, participant_type, instrument_category, long_contracts, short_contracts, long_value, short_value)
+                    VALUES ('2026-04-10', 'FII', 'INDEX_OPTIONS', 500000, 450000, 62500.0, 56250.0)""")
+
+    # Options chain snapshot (for PCR)
+    conn.execute("""INSERT INTO options_chain_snapshot (instrument_symbol, trade_date, expiry_date, strike_price, option_type, open_interest, volume, last_price)
+                    VALUES ('NIFTY', '2026-04-10', '2026-04-24', 22000.0, 'PE', 5000000, 100000, 150.0)""")
+    conn.execute("""INSERT INTO options_chain_snapshot (instrument_symbol, trade_date, expiry_date, strike_price, option_type, open_interest, volume, last_price)
+                    VALUES ('NIFTY', '2026-04-10', '2026-04-24', 22000.0, 'CE', 6000000, 120000, 200.0)""")
+    conn.execute("""INSERT INTO options_chain_snapshot (instrument_symbol, trade_date, expiry_date, strike_price, option_type, open_interest, volume, last_price)
+                    VALUES ('NIFTY', '2026-04-10', '2026-04-24', 22500.0, 'PE', 3000000, 80000, 300.0)""")
+    conn.execute("""INSERT INTO options_chain_snapshot (instrument_symbol, trade_date, expiry_date, strike_price, option_type, open_interest, volume, last_price)
+                    VALUES ('NIFTY', '2026-04-10', '2026-04-24', 22500.0, 'CE', 4000000, 90000, 100.0)""")
+
+    # F&O series OI
+    conn.execute("""INSERT INTO fo_series_oi (instrument_symbol, trade_date, expiry_date, futures_oi, options_oi, total_oi, total_volume)
+                    VALUES ('NIFTY', '2026-04-10', '2026-04-24', 1500000, 25000000, 26500000, 5000000)""")
 
     # Sources + Facts for testing
     conn.execute("""INSERT INTO sources (company_id, file_type, period_type, derivation, statement_type)

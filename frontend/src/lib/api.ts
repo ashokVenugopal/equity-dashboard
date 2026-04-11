@@ -97,3 +97,108 @@ export function getMarketGlobal(): Promise<{ instruments: GlobalInstrument[] }> 
 export function getHealth(): Promise<Record<string, unknown>> {
   return apiFetch("/api/health");
 }
+
+// ── Index endpoints ──
+
+export interface Constituent {
+  symbol: string;
+  name: string;
+  sort_order: number | null;
+  close: number | null;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  volume: number | null;
+  trade_date: string | null;
+  prev_close: number | null;
+  change: number | null;
+  change_pct: number | null;
+}
+
+export interface Mover {
+  symbol: string;
+  name: string;
+  close: number;
+  change_pct: number;
+  mover_type: string;
+}
+
+export interface TechnicalRow {
+  symbol: string;
+  name: string;
+  dma_50: number | null;
+  dma_200: number | null;
+  rsi_14: number | null;
+  high_52w: number | null;
+  low_52w: number | null;
+  daily_change_pct: number | null;
+}
+
+export function getIndexConstituents(slug: string): Promise<{ index_name: string; constituents: Constituent[]; count: number }> {
+  return apiFetch(`/api/index/${slug}/constituents`);
+}
+
+export function getIndexMovers(slug: string, limit = 5): Promise<{ index_name: string; gainers: Mover[]; losers: Mover[] }> {
+  return apiFetch(`/api/index/${slug}/movers?limit=${limit}`);
+}
+
+export function getIndexTechnicals(slug: string): Promise<{ index_name: string; technicals: TechnicalRow[] }> {
+  return apiFetch(`/api/index/${slug}/technicals`);
+}
+
+export function getIndexBreadth(slug: string): Promise<{ index_name: string; breadth: { advances: number; declines: number; unchanged: number; total: number } }> {
+  return apiFetch(`/api/index/${slug}/breadth`);
+}
+
+// ── Instrument endpoints ──
+
+export interface PriceBar {
+  trade_date: string;
+  open: number | null;
+  high: number | null;
+  low: number | null;
+  close: number;
+  adj_close: number | null;
+  volume: number | null;
+  delivery_qty: number | null;
+}
+
+export function getInstrumentPriceHistory(symbol: string, params?: { start_date?: string; limit?: number }): Promise<{ symbol: string; prices: PriceBar[]; count: number }> {
+  const qs = new URLSearchParams();
+  if (params?.start_date) qs.set("start_date", params.start_date);
+  if (params?.limit) qs.set("limit", String(params.limit));
+  return apiFetch(`/api/instrument/${symbol}/price-history?${qs}`);
+}
+
+// ── Derivatives endpoints ──
+
+export interface PCRRow {
+  instrument_symbol: string;
+  trade_date: string;
+  expiry_date: string;
+  put_oi: number;
+  call_oi: number;
+  pcr: number | null;
+}
+
+export interface FIIPositioning {
+  trade_date: string;
+  participant_type: string;
+  instrument_category: string;
+  long_contracts: number;
+  short_contracts: number;
+  long_pct: number | null;
+  short_pct: number | null;
+}
+
+export function getDerivativesPCR(instrument = "NIFTY", limit = 10): Promise<{ instrument: string; pcr_data: PCRRow[] }> {
+  return apiFetch(`/api/derivatives/pcr?instrument=${instrument}&limit=${limit}`);
+}
+
+export function getDerivativesFIIPositioning(limit = 10): Promise<{ positioning: FIIPositioning[] }> {
+  return apiFetch(`/api/derivatives/fii-positioning?limit=${limit}`);
+}
+
+export function getDerivativesOIChanges(instrument = "NIFTY"): Promise<{ instrument: string; oi_data: Record<string, unknown>[] }> {
+  return apiFetch(`/api/derivatives/oi-changes?instrument=${instrument}`);
+}

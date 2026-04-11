@@ -3,6 +3,7 @@ import { Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { Header } from "@/components/layout/Header";
+import { CacheProvider } from "@/lib/cache";
 
 const mono = Geist_Mono({
   variable: "--font-geist-mono",
@@ -22,13 +23,15 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${mono.variable} h-full`}>
       <body className="h-full flex flex-col bg-background text-foreground">
-        <Header />
-        <div className="flex flex-1 overflow-hidden">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto p-4">
-            {children}
-          </main>
-        </div>
+        <CacheProvider>
+          <Header />
+          <div className="flex flex-1 overflow-hidden">
+            <Sidebar />
+            <main className="flex-1 overflow-y-auto p-4">
+              {children}
+            </main>
+          </div>
+        </CacheProvider>
       </body>
     </html>
   );

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { DataTable } from "@/components/tables/DataTable";
 import { PriceChart } from "@/components/charts/PriceChart";
+import Link from "next/link";
 import type { Constituent, Mover, TechnicalRow, PriceBar } from "@/lib/api";
 import { getInstrumentPriceHistory } from "@/lib/api";
 import { ScrollSection } from "@/components/layout/ScrollSection";
@@ -62,12 +63,9 @@ export function IndexPageClient({
             <h3 className="text-xs text-positive font-bold mb-2">GAINERS</h3>
             {gainers.map((m) => (
               <div key={m.symbol} className="flex justify-between py-1 text-xs font-mono">
-                <span
-                  className="text-foreground cursor-pointer hover:text-accent"
-                  onClick={() => handleRowClick(m.symbol)}
-                >
+                <Link href={`/company/${m.symbol}`} className="text-accent hover:underline">
                   {m.symbol}
-                </span>
+                </Link>
                 <span className="text-positive">+{m.change_pct?.toFixed(2)}%</span>
               </div>
             ))}
@@ -76,12 +74,9 @@ export function IndexPageClient({
             <h3 className="text-xs text-negative font-bold mb-2">LOSERS</h3>
             {losers.map((m) => (
               <div key={m.symbol} className="flex justify-between py-1 text-xs font-mono">
-                <span
-                  className="text-foreground cursor-pointer hover:text-accent"
-                  onClick={() => handleRowClick(m.symbol)}
-                >
+                <Link href={`/company/${m.symbol}`} className="text-accent hover:underline">
                   {m.symbol}
-                </span>
+                </Link>
                 <span className="text-negative">{m.change_pct?.toFixed(2)}%</span>
               </div>
             ))}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import Link from "next/link";
 import { formatCell } from "@/lib/formatters";
 
 interface DataTableProps {
@@ -8,11 +9,13 @@ interface DataTableProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   rows: any[];
   compact?: boolean;
+  /** Column key that contains the stock symbol for linking to /company/{symbol} */
+  symbolKey?: string;
 }
 
 type SortDir = "asc" | "desc";
 
-export function DataTable({ columns, rows, compact = false }: DataTableProps) {
+export function DataTable({ columns, rows, compact = false, symbolKey = "symbol" }: DataTableProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -40,6 +43,9 @@ export function DataTable({ columns, rows, compact = false }: DataTableProps) {
       setSortDir("desc");
     }
   }
+
+  // Detect which columns have a symbol we can link
+  const hasSymbolCol = columns.some((c) => c.key === symbolKey);
 
   const py = compact ? "py-1" : "py-1.5";
   const px = compact ? "px-2" : "px-3";
@@ -75,17 +81,31 @@ export function DataTable({ columns, rows, compact = false }: DataTableProps) {
               key={i}
               className="border-b border-border/50 hover:bg-surface-hover transition-colors"
             >
-              {columns.map((col) => (
-                <td
-                  key={col.key}
-                  className={`
-                    ${px} ${py} whitespace-nowrap tabular-nums
-                    ${col.align === "right" ? "text-right" : "text-left"}
-                  `}
-                >
-                  {formatCell(col.key, row[col.key])}
-                </td>
-              ))}
+              {columns.map((col) => {
+                const val = row[col.key];
+                const isSymbol = col.key === symbolKey && hasSymbolCol && typeof val === "string";
+
+                return (
+                  <td
+                    key={col.key}
+                    className={`
+                      ${px} ${py} whitespace-nowrap tabular-nums
+                      ${col.align === "right" ? "text-right" : "text-left"}
+                    `}
+                  >
+                    {isSymbol ? (
+                      <Link
+                        href={`/company/${val}`}
+                        className="text-accent hover:underline"
+                      >
+                        {val}
+                      </Link>
+                    ) : (
+                      formatCell(col.key, val)
+                    )}
+                  </td>
+                );
+              })}
             </tr>
           ))}
         </tbody>

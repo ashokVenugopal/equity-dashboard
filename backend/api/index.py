@@ -46,49 +46,48 @@ def index_constituents(name: str):
     index_name = _resolve_index_name(name)
     conn = get_pipeline_connection()
     try:
+        # Dedup classifications (multiple active rows per stock from versioning)
+        # and query price_history directly (avoids slow best_prices view)
         rows = conn.execute("""
             WITH constituents AS (
-                SELECT i.instrument_id, i.symbol, i.name, i.company_id, cl.sort_order
+                SELECT i.instrument_id, i.symbol, i.name, i.company_id,
+                       MIN(cl.sort_order) AS sort_order
                 FROM classifications cl
                 JOIN instruments i ON cl.instrument_id = i.instrument_id
                 WHERE cl.classification_type = 'index_constituent'
                   AND cl.classification_name = ?
                   AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
                   AND i.is_active = 1
+                GROUP BY i.instrument_id
             ),
-            latest_date AS (
-                SELECT c.instrument_id, MAX(bp.trade_date) AS latest_date
-                FROM constituents c
-                JOIN best_prices bp ON bp.instrument_id = c.instrument_id
-                GROUP BY c.instrument_id
+            ranked AS (
+                SELECT ph.instrument_id, ph.trade_date, ph.open, ph.high, ph.low,
+                       ph.close, ph.volume,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'yahoo_finance' THEN 3 ELSE 4
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
             ),
-            latest_prices AS (
-                SELECT bp.instrument_id, bp.close, bp.open, bp.high, bp.low,
-                       bp.volume, bp.trade_date
-                FROM best_prices bp
-                JOIN latest_date ld ON bp.instrument_id = ld.instrument_id
-                  AND bp.trade_date = ld.latest_date
-            ),
-            prev_prices AS (
-                SELECT bp.instrument_id, bp.close AS prev_close,
-                       ROW_NUMBER() OVER (PARTITION BY bp.instrument_id ORDER BY bp.trade_date DESC) AS rn
-                FROM best_prices bp
-                JOIN latest_date ld ON bp.instrument_id = ld.instrument_id
-                WHERE bp.trade_date < ld.latest_date
-                  AND bp.trade_date >= date(ld.latest_date, '-7 days')
-            )
+            latest AS (SELECT * FROM ranked WHERE rn = 1),
+            prev AS (SELECT * FROM ranked WHERE rn = 2)
             SELECT c.symbol, c.name, c.sort_order,
                    lp.close, lp.open, lp.high, lp.low, lp.volume, lp.trade_date,
-                   pp.prev_close,
-                   CASE WHEN pp.prev_close > 0
-                        THEN ROUND(lp.close - pp.prev_close, 2)
+                   pv.close AS prev_close,
+                   CASE WHEN pv.close > 0
+                        THEN ROUND(lp.close - pv.close, 2)
                         ELSE NULL END AS change,
-                   CASE WHEN pp.prev_close > 0
-                        THEN ROUND((lp.close - pp.prev_close) / pp.prev_close * 100, 2)
+                   CASE WHEN pv.close > 0
+                        THEN ROUND((lp.close - pv.close) / pv.close * 100, 2)
                         ELSE NULL END AS change_pct
             FROM constituents c
-            LEFT JOIN latest_prices lp ON c.instrument_id = lp.instrument_id
-            LEFT JOIN prev_prices pp ON c.instrument_id = pp.instrument_id AND pp.rn = 1
+            LEFT JOIN latest lp ON c.instrument_id = lp.instrument_id
+            LEFT JOIN prev pv ON c.instrument_id = pv.instrument_id
             ORDER BY c.sort_order, c.symbol
         """, (index_name,)).fetchall()
 
@@ -116,6 +115,7 @@ def index_movers(name: str, limit: int = Query(5, ge=1, le=20)):
     index_name = _resolve_index_name(name)
     conn = get_pipeline_connection()
     try:
+        # Dedup classifications + query price_history directly
         rows = conn.execute("""
             WITH constituents AS (
                 SELECT i.instrument_id, i.symbol, i.name
@@ -124,29 +124,30 @@ def index_movers(name: str, limit: int = Query(5, ge=1, le=20)):
                 WHERE cl.classification_type = 'index_constituent'
                   AND cl.classification_name = ?
                   AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
+                GROUP BY i.instrument_id
             ),
-            latest_date AS (
-                SELECT c.instrument_id, MAX(bp.trade_date) AS latest_date
-                FROM constituents c
-                JOIN best_prices bp ON bp.instrument_id = c.instrument_id
-                GROUP BY c.instrument_id
+            ranked AS (
+                SELECT ph.instrument_id, ph.trade_date, ph.close,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'yahoo_finance' THEN 3 ELSE 4
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
             ),
             with_change AS (
-                SELECT c.symbol, c.name, bp.close, bp.trade_date,
-                       prev.close AS prev_close,
-                       CASE WHEN prev.close > 0
-                            THEN ROUND((bp.close - prev.close) / prev.close * 100, 2)
+                SELECT c.symbol, c.name, lp.close, lp.trade_date,
+                       pv.close AS prev_close,
+                       CASE WHEN pv.close > 0
+                            THEN ROUND((lp.close - pv.close) / pv.close * 100, 2)
                             ELSE NULL END AS change_pct
                 FROM constituents c
-                JOIN latest_date ld ON c.instrument_id = ld.instrument_id
-                JOIN best_prices bp ON bp.instrument_id = c.instrument_id AND bp.trade_date = ld.latest_date
-                LEFT JOIN (
-                    SELECT bp2.instrument_id, bp2.close,
-                           ROW_NUMBER() OVER (PARTITION BY bp2.instrument_id ORDER BY bp2.trade_date DESC) AS rn
-                    FROM best_prices bp2
-                    JOIN latest_date ld2 ON bp2.instrument_id = ld2.instrument_id
-                    WHERE bp2.trade_date < ld2.latest_date
-                ) prev ON prev.instrument_id = c.instrument_id AND prev.rn = 1
+                JOIN ranked lp ON c.instrument_id = lp.instrument_id AND lp.rn = 1
+                LEFT JOIN ranked pv ON c.instrument_id = pv.instrument_id AND pv.rn = 2
                 WHERE change_pct IS NOT NULL
             )
             SELECT * FROM (
@@ -189,6 +190,7 @@ def index_technicals(name: str):
                 WHERE cl.classification_type = 'index_constituent'
                   AND cl.classification_name = ?
                   AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
+                GROUP BY i.instrument_id
             ),
             latest_tech AS (
                 SELECT dt.instrument_id, dt.indicator_code, dt.value, dt.trade_date,
@@ -245,6 +247,7 @@ def index_breadth(name: str):
                 WHERE cl.classification_type = 'index_constituent'
                   AND cl.classification_name = ?
                   AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
+                GROUP BY i.instrument_id
             ),
             latest AS (
                 SELECT dt.instrument_id, dt.value AS change_pct

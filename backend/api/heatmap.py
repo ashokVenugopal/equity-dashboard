@@ -29,33 +29,33 @@ def heatmap_data(index: str):
 
     conn = get_pipeline_connection()
     try:
+        # Dedup classifications + direct price_history query (no slow best_prices view)
         rows = conn.execute("""
             WITH constituents AS (
-                SELECT i.instrument_id, i.symbol, i.name, i.company_id, cl.sort_order
+                SELECT i.instrument_id, i.symbol, i.name, i.company_id
                 FROM classifications cl
                 JOIN instruments i ON cl.instrument_id = i.instrument_id
                 WHERE cl.classification_type = 'index_constituent'
                   AND cl.classification_name = ?
                   AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
                   AND i.is_active = 1
+                GROUP BY i.instrument_id
             ),
-            latest_price AS (
-                SELECT bp.instrument_id, bp.close, bp.trade_date,
-                       ROW_NUMBER() OVER (PARTITION BY bp.instrument_id ORDER BY bp.trade_date DESC) AS rn
-                FROM best_prices bp
-                JOIN constituents c ON bp.instrument_id = c.instrument_id
-            ),
-            prev_price AS (
-                SELECT bp.instrument_id, bp.close AS prev_close,
-                       ROW_NUMBER() OVER (PARTITION BY bp.instrument_id ORDER BY bp.trade_date DESC) AS rn
-                FROM best_prices bp
-                JOIN constituents c ON bp.instrument_id = c.instrument_id
-                JOIN latest_price lp ON lp.instrument_id = bp.instrument_id AND lp.rn = 1
-                WHERE bp.trade_date < lp.trade_date
+            ranked AS (
+                SELECT ph.instrument_id, ph.trade_date, ph.close,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'yahoo_finance' THEN 3 ELSE 4
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
             ),
             market_caps AS (
-                SELECT bf.company_id,
-                       bf.value AS market_cap
+                SELECT bf.company_id, bf.value AS market_cap
                 FROM best_facts_consolidated bf
                 JOIN concepts co ON bf.concept_id = co.concept_id
                 WHERE co.concept_code = 'market_cap'
@@ -71,12 +71,12 @@ def heatmap_data(index: str):
             SELECT c.symbol, c.name, c.company_id,
                    lp.close, lp.trade_date,
                    COALESCE(mc.market_cap, lp.close) AS market_cap,
-                   CASE WHEN pp.prev_close > 0
-                        THEN ROUND((lp.close - pp.prev_close) / pp.prev_close * 100, 2)
+                   CASE WHEN pv.close > 0
+                        THEN ROUND((lp.close - pv.close) / pv.close * 100, 2)
                         ELSE NULL END AS change_pct
             FROM constituents c
-            LEFT JOIN latest_price lp ON c.instrument_id = lp.instrument_id AND lp.rn = 1
-            LEFT JOIN prev_price pp ON c.instrument_id = pp.instrument_id AND pp.rn = 1
+            LEFT JOIN ranked lp ON c.instrument_id = lp.instrument_id AND lp.rn = 1
+            LEFT JOIN ranked pv ON c.instrument_id = pv.instrument_id AND pv.rn = 2
             LEFT JOIN market_caps mc ON c.company_id = mc.company_id
             ORDER BY COALESCE(mc.market_cap, 0) DESC
         """, (index_name,)).fetchall()

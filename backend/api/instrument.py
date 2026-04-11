@@ -35,21 +35,34 @@ def price_history(
         if not instrument:
             raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found")
 
-        sql = """
-            SELECT trade_date, open, high, low, close, adj_close, volume, delivery_qty
-            FROM best_prices
-            WHERE instrument_id = ?
-        """
+        # Query price_history directly with source priority (avoids slow best_prices view)
+        date_filter = ""
         params: list = [instrument["instrument_id"]]
-
         if start_date:
-            sql += " AND trade_date >= ?"
+            date_filter += " AND ph.trade_date >= ?"
             params.append(start_date)
         if end_date:
-            sql += " AND trade_date <= ?"
+            date_filter += " AND ph.trade_date <= ?"
             params.append(end_date)
 
-        sql += " ORDER BY trade_date DESC LIMIT ?"
+        sql = f"""
+            WITH ranked AS (
+                SELECT ph.trade_date, ph.open, ph.high, ph.low, ph.close,
+                       ph.adj_close, ph.volume, ph.delivery_qty,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.trade_date
+                           ORDER BY CASE ph.source
+                               WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                               WHEN 'nse_index' THEN 3 WHEN 'yahoo_finance' THEN 4 ELSE 5
+                           END, ph.created_at DESC
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id = ? {date_filter}
+            )
+            SELECT trade_date, open, high, low, close, adj_close, volume, delivery_qty
+            FROM ranked WHERE rn = 1
+            ORDER BY trade_date DESC LIMIT ?
+        """
         params.append(limit)
 
         rows = [dict(r) for r in conn.execute(sql, params).fetchall()]

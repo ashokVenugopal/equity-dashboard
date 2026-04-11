@@ -24,16 +24,26 @@ def global_overview():
     conn = get_pipeline_connection()
     try:
         rows = conn.execute("""
+            WITH lp AS (
+                SELECT ph.instrument_id, ph.close, ph.trade_date, ph.open, ph.high, ph.low, ph.volume,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'nse_index' THEN 3 WHEN 'yahoo_finance' THEN 4 ELSE 5
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (
+                    SELECT instrument_id FROM instruments WHERE instrument_type != 'stock' AND is_active = 1
+                )
+            )
             SELECT i.instrument_type, i.symbol, i.name, i.currency,
-                   bp.close, bp.trade_date, bp.open, bp.high, bp.low, bp.volume
+                   lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume
             FROM instruments i
-            LEFT JOIN (
-                SELECT instrument_id, close, trade_date, open, high, low, volume,
-                       ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
-                FROM best_prices
-            ) bp ON bp.instrument_id = i.instrument_id AND bp.rn = 1
-            WHERE i.instrument_type != 'stock'
-              AND i.is_active = 1
+            LEFT JOIN lp ON lp.instrument_id = i.instrument_id AND lp.rn = 1
+            WHERE i.instrument_type != 'stock' AND i.is_active = 1
             ORDER BY i.instrument_type, i.symbol
         """).fetchall()
 
@@ -90,18 +100,28 @@ def _get_by_type(instrument_type: str):
     conn = get_pipeline_connection()
     try:
         rows = conn.execute("""
+            WITH lp AS (
+                SELECT ph.instrument_id, ph.close, ph.trade_date, ph.open, ph.high, ph.low, ph.volume,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'nse_index' THEN 3 WHEN 'yahoo_finance' THEN 4 ELSE 5
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (
+                    SELECT instrument_id FROM instruments WHERE instrument_type = ? AND is_active = 1
+                )
+            )
             SELECT i.symbol, i.name, i.currency,
-                   bp.close, bp.trade_date, bp.open, bp.high, bp.low, bp.volume
+                   lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume
             FROM instruments i
-            LEFT JOIN (
-                SELECT instrument_id, close, trade_date, open, high, low, volume,
-                       ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
-                FROM best_prices
-            ) bp ON bp.instrument_id = i.instrument_id AND bp.rn = 1
-            WHERE i.instrument_type = ?
-              AND i.is_active = 1
+            LEFT JOIN lp ON lp.instrument_id = i.instrument_id AND lp.rn = 1
+            WHERE i.instrument_type = ? AND i.is_active = 1
             ORDER BY i.symbol
-        """, (instrument_type,)).fetchall()
+        """, (instrument_type, instrument_type)).fetchall()
 
         result = [dict(r) for r in rows]
         elapsed = time.time() - t0

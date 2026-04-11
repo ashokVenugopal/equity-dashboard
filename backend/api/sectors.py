@@ -93,21 +93,35 @@ def sector_constituents(classification_type: str, name: str):
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
+        # Dedup classifications + direct price_history query
         rows = conn.execute("""
-            SELECT c.symbol, c.name,
-                   bp.close, bp.trade_date, bp.volume
-            FROM classifications cl
-            JOIN instruments i ON cl.instrument_id = i.instrument_id
-            JOIN companies c ON i.company_id = c.company_id
-            LEFT JOIN (
-                SELECT instrument_id, close, trade_date, volume,
-                       ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
-                FROM best_prices
-            ) bp ON bp.instrument_id = i.instrument_id AND bp.rn = 1
-            WHERE cl.classification_type = ?
-              AND cl.classification_name = ?
-              AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
-            ORDER BY cl.sort_order, c.symbol
+            WITH deduped AS (
+                SELECT i.instrument_id, c.symbol, c.name, MIN(cl.sort_order) AS sort_order
+                FROM classifications cl
+                JOIN instruments i ON cl.instrument_id = i.instrument_id
+                JOIN companies c ON i.company_id = c.company_id
+                WHERE cl.classification_type = ?
+                  AND cl.classification_name = ?
+                  AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
+                GROUP BY i.instrument_id
+            ),
+            lp AS (
+                SELECT ph.instrument_id, ph.close, ph.trade_date, ph.volume,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'yahoo_finance' THEN 3 ELSE 4
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (SELECT instrument_id FROM deduped)
+            )
+            SELECT d.symbol, d.name, lp.close, lp.trade_date, lp.volume
+            FROM deduped d
+            LEFT JOIN lp ON lp.instrument_id = d.instrument_id AND lp.rn = 1
+            ORDER BY d.sort_order, d.symbol
         """, (classification_type, name)).fetchall()
 
         if not rows:

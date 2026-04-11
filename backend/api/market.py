@@ -163,27 +163,33 @@ def market_global():
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
+        # Query price_history directly with window function (avoids slow best_prices view)
         rows = conn.execute("""
+            WITH lp AS (
+                SELECT ph.instrument_id, ph.trade_date, ph.open, ph.high, ph.low, ph.close, ph.volume,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.instrument_id
+                           ORDER BY ph.trade_date DESC,
+                               CASE ph.source
+                                   WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                                   WHEN 'nse_index' THEN 3 WHEN 'yahoo_finance' THEN 4 ELSE 5
+                               END
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id IN (
+                    SELECT instrument_id FROM instruments WHERE instrument_type != 'stock' AND is_active = 1
+                )
+            )
             SELECT i.instrument_type, i.symbol, i.name, i.currency,
-                   bp.close, bp.trade_date,
-                   bp.open, bp.high, bp.low, bp.volume
+                   lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume
             FROM instruments i
-            LEFT JOIN (
-                SELECT instrument_id, close, trade_date, open, high, low, volume,
-                       ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
-                FROM best_prices
-            ) bp ON bp.instrument_id = i.instrument_id AND bp.rn = 1
-            WHERE i.instrument_type != 'stock'
-              AND i.is_active = 1
+            LEFT JOIN lp ON lp.instrument_id = i.instrument_id AND lp.rn = 1
+            WHERE i.instrument_type != 'stock' AND i.is_active = 1
             ORDER BY
                 CASE i.instrument_type
-                    WHEN 'index' THEN 1
-                    WHEN 'commodity' THEN 2
-                    WHEN 'forex' THEN 3
-                    WHEN 'bond' THEN 4
-                    WHEN 'crypto' THEN 5
-                    WHEN 'adr' THEN 6
-                    ELSE 7
+                    WHEN 'index' THEN 1 WHEN 'commodity' THEN 2
+                    WHEN 'forex' THEN 3 WHEN 'bond' THEN 4
+                    WHEN 'crypto' THEN 5 WHEN 'adr' THEN 6 ELSE 7
                 END,
                 i.symbol
         """).fetchall()
@@ -205,47 +211,43 @@ def market_global():
 
 def _get_index_cards(conn):
     """Get latest price + previous day for change calculation for Indian indices."""
+    # Query price_history directly — avoids the slow best_prices correlated subquery
     rows = conn.execute("""
-        WITH latest AS (
-            SELECT instrument_id,
-                   MAX(trade_date) AS latest_date
-            FROM best_prices
-            WHERE instrument_id IN (
+        WITH ranked AS (
+            SELECT ph.instrument_id, ph.trade_date, ph.open, ph.high, ph.low,
+                   ph.close, ph.volume,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ph.instrument_id
+                       ORDER BY ph.trade_date DESC,
+                           CASE ph.source
+                               WHEN 'nse_index' THEN 1 WHEN 'nse_bhavcopy' THEN 2
+                               WHEN 'yahoo_finance' THEN 3 ELSE 4
+                           END
+                   ) AS rn
+            FROM price_history ph
+            WHERE ph.instrument_id IN (
                 SELECT instrument_id FROM instruments
                 WHERE instrument_type = 'index' AND exchange = 'NSE' AND is_active = 1
             )
-            GROUP BY instrument_id
         ),
-        latest_prices AS (
-            SELECT bp.instrument_id, bp.close, bp.trade_date, bp.open, bp.high, bp.low, bp.volume
-            FROM best_prices bp
-            JOIN latest l ON bp.instrument_id = l.instrument_id AND bp.trade_date = l.latest_date
+        latest AS (
+            SELECT * FROM ranked WHERE rn = 1
         ),
         prev AS (
-            SELECT bp.instrument_id, bp.close AS prev_close, bp.trade_date AS prev_date
-            FROM best_prices bp
-            JOIN latest l ON bp.instrument_id = l.instrument_id
-            WHERE bp.trade_date < l.latest_date
-            AND bp.trade_date >= date(l.latest_date, '-7 days')
-            ORDER BY bp.trade_date DESC
-        ),
-        prev_dedup AS (
-            SELECT instrument_id, prev_close, prev_date,
-                   ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY prev_date DESC) AS rn
-            FROM prev
+            SELECT * FROM ranked WHERE rn = 2
         )
         SELECT i.symbol, i.name,
                lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume,
-               pd.prev_close, pd.prev_date,
-               CASE WHEN pd.prev_close > 0
-                    THEN ROUND((lp.close - pd.prev_close), 2)
+               pv.close AS prev_close, pv.trade_date AS prev_date,
+               CASE WHEN pv.close > 0
+                    THEN ROUND((lp.close - pv.close), 2)
                     ELSE NULL END AS change,
-               CASE WHEN pd.prev_close > 0
-                    THEN ROUND((lp.close - pd.prev_close) / pd.prev_close * 100, 2)
+               CASE WHEN pv.close > 0
+                    THEN ROUND((lp.close - pv.close) / pv.close * 100, 2)
                     ELSE NULL END AS change_pct
         FROM instruments i
-        JOIN latest_prices lp ON i.instrument_id = lp.instrument_id
-        LEFT JOIN prev_dedup pd ON i.instrument_id = pd.instrument_id AND pd.rn = 1
+        JOIN latest lp ON i.instrument_id = lp.instrument_id
+        LEFT JOIN prev pv ON i.instrument_id = pv.instrument_id
         ORDER BY
             CASE i.symbol
                 WHEN 'NIFTY50' THEN 1

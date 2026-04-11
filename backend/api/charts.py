@@ -118,22 +118,33 @@ def export_chart(
         if not instrument:
             raise HTTPException(status_code=404, detail=f"Instrument '{symbol}' not found")
 
-        sql = """
-            SELECT trade_date, open, high, low, close, volume
-            FROM best_prices
-            WHERE instrument_id = ?
-        """
+        date_filter = ""
         params: list = [instrument["instrument_id"]]
         if start_date:
-            sql += " AND trade_date >= ?"
+            date_filter += " AND ph.trade_date >= ?"
             params.append(start_date)
         if end_date:
-            sql += " AND trade_date <= ?"
+            date_filter += " AND ph.trade_date <= ?"
             params.append(end_date)
-        sql += " ORDER BY trade_date ASC LIMIT ?"
         params.append(limit)
 
-        rows = conn.execute(sql, params).fetchall()
+        rows = conn.execute(f"""
+            WITH ranked AS (
+                SELECT ph.trade_date, ph.open, ph.high, ph.low, ph.close, ph.volume,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY ph.trade_date
+                           ORDER BY CASE ph.source
+                               WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2
+                               WHEN 'nse_index' THEN 3 WHEN 'yahoo_finance' THEN 4 ELSE 5
+                           END, ph.created_at DESC
+                       ) AS rn
+                FROM price_history ph
+                WHERE ph.instrument_id = ? {date_filter}
+            )
+            SELECT trade_date, open, high, low, close, volume
+            FROM ranked WHERE rn = 1
+            ORDER BY trade_date ASC LIMIT ?
+        """, params).fetchall()
         if not rows:
             raise HTTPException(status_code=404, detail=f"No price data for '{symbol}'")
 

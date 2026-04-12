@@ -410,10 +410,22 @@ def _seed_sample_data(conn):
     conn.execute("INSERT INTO companies (symbol, slug, isin, name) VALUES ('HDFCBANK', 'hdfc-bank', 'INE040A01034', 'HDFC Bank')")
     conn.execute("INSERT INTO companies (symbol, slug, isin, name) VALUES ('TCS', 'tcs', 'INE467B01029', 'Tata Consultancy Services')")
 
-    # Concepts
+    # Concepts — P&L
     conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('sales', 'Sales / Revenue', 'profit_loss', 'inr_cr')")
     conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('net_profit', 'Net Profit', 'profit_loss', 'inr_cr')")
     conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('market_cap', 'Market Capitalisation', 'meta', 'inr_cr')")
+    # Concepts — Shareholding (IDs: 4-7)
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('sh_promoters', 'Promoter Holding', 'shareholding', 'percent')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('sh_fiis', 'FII Holding', 'shareholding', 'percent')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('sh_diis', 'DII Holding', 'shareholding', 'percent')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('sh_public', 'Public Holding', 'shareholding', 'percent')")
+    # Concepts — Fundamentals (IDs: 8-13)
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('price_to_earning', 'PE Ratio', 'ratio', 'ratio')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('peg_ratio', 'PEG Ratio', 'ratio', 'ratio')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('price_to_book', 'Price to Book', 'ratio', 'ratio')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('eps', 'Earnings Per Share', 'ratio', 'inr')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('npm', 'Net Profit Margin', 'ratio', 'percent')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('roe', 'Return on Equity', 'ratio', 'percent')")
 
     # Instruments — indices
     conn.execute("""INSERT INTO instruments (instrument_type, symbol, name, exchange, currency)
@@ -567,3 +579,31 @@ def _seed_sample_data(conn):
     # Fact with NULL period_end_date (snapshot concepts like current_price)
     conn.execute("""INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit)
                     VALUES (1, 1, 3, NULL, NULL, 1500000.0, 'inr_cr')""")
+
+    # Shareholding facts for RELIANCE (concept_ids: 4=sh_promoters, 5=sh_fiis, 6=sh_diis, 7=sh_public)
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 4, '2025-03-31', 45.5, 'percent')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 5, '2025-03-31', 25.3, 'percent')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 6, '2025-03-31', 18.2, 'percent')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 7, '2025-03-31', 11.0, 'percent')")
+
+    # Fundamental facts for RELIANCE (concept_ids: 8=pe, 9=peg, 10=pb, 11=eps, 12=npm, 13=roe)
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 8, '2025-03-31', 25.5, 'ratio')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 9, '2025-03-31', 1.2, 'ratio')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 10, '2025-03-31', 3.8, 'ratio')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 11, '2025-03-31', 54.67, 'inr')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 12, '2025-03-31', 25.8, 'percent')")
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) VALUES (1, 1, 13, '2025-03-31', 15.2, 'percent')")
+
+    # Additional institutional flows — monthly, yearly, multiple segments
+    conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, buy_value, sell_value, net_value, source, period_type)
+                    VALUES ('2026-03-31', 'FII', 'CASH', 145000.0, 135000.0, 10000.0, 'nse_website', 'monthly')""")
+    conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, buy_value, sell_value, net_value, source, period_type)
+                    VALUES ('2026-03-31', 'DII', 'CASH', 120000.0, 110000.0, 10000.0, 'nse_website', 'monthly')""")
+    conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, net_value, source, period_type)
+                    VALUES ('2025', 'FII', 'SUMMARY_TOTAL', -257707.4, 'nse_website', 'yearly')""")
+    conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, net_value, source, period_type)
+                    VALUES ('2025', 'FII', 'SUMMARY_EQUITY', -165501.3, 'nse_website', 'yearly')""")
+    conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, buy_value, sell_value, net_value, source, period_type)
+                    VALUES ('2026-04-10', 'FII', 'CASH_EQUITY', 3000.0, 3500.0, -500.0, 'nse_website', 'daily')""")
+    conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, buy_value, sell_value, net_value, source, period_type)
+                    VALUES ('2026-04-10', 'FII', 'FO_INDEX_FUTURES', 10000.0, 12000.0, -2000.0, 'nse_website', 'daily')""")

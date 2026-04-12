@@ -267,6 +267,18 @@ class TestExpectedSkipsVsGenuineFailures:
         resp = test_client.get("/api/index/nonexistent-xyz/constituents")
         assert resp.status_code == 404
 
+    def test_null_period_end_date_does_not_crash(self, test_client):
+        """
+        Facts with NULL period_end_date (e.g., snapshot market_cap) should not
+        crash the financials endpoint. Regression: TypeError '<' not supported
+        between instances of 'NoneType' and 'str' when sorting periods.
+        """
+        resp = test_client.get("/api/company/RELIANCE/financials")
+        assert resp.status_code == 200
+        # None should be excluded from periods list
+        for period in resp.json()["periods"]:
+            assert period is not None
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # 4. PINE SCRIPT EXPECTED COMPILATION/RUNTIME FAILURES

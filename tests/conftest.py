@@ -564,3 +564,6 @@ def _seed_sample_data(conn):
                     VALUES (1, 1, 1, '2025-03-31', '2024-2025', 69709.44, 'inr_cr')""")
     conn.execute("""INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit)
                     VALUES (1, 1, 2, '2025-03-31', '2024-2025', 17850.0, 'inr_cr')""")
+    # Fact with NULL period_end_date (snapshot concepts like current_price)
+    conn.execute("""INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit)
+                    VALUES (1, 1, 3, NULL, NULL, 1500000.0, 'inr_cr')""")

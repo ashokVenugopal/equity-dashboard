@@ -110,7 +110,8 @@ def company_financials(
             sec = r["section"]
             code = r["concept_code"]
             period = r["period_end_date"]
-            periods_set.add(period)
+            if period is not None:
+                periods_set.add(period)
 
             if sec not in sections_data:
                 sections_data[sec] = {}
@@ -173,7 +174,8 @@ def company_ratios(symbol: str):
         periods_set = set()
         for r in rows:
             code = r["concept_code"]
-            periods_set.add(r["period_end_date"])
+            if r["period_end_date"] is not None:
+                periods_set.add(r["period_end_date"])
             if code not in ratios:
                 ratios[code] = {"concept_code": code, "concept_name": r["concept_name"], "values": {}}
             ratios[code]["values"][r["period_end_date"]] = r["value"]
@@ -220,7 +222,8 @@ def company_shareholding(symbol: str):
         periods_set = set()
         for r in rows:
             code = r["concept_code"]
-            periods_set.add(r["period_end_date"])
+            if r["period_end_date"] is not None:
+                periods_set.add(r["period_end_date"])
             if code not in holdings:
                 holdings[code] = {"concept_code": code, "concept_name": r["concept_name"], "values": {}}
             holdings[code]["values"][r["period_end_date"]] = r["value"]

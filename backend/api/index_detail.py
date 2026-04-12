@@ -143,6 +143,12 @@ def index_table(
             rows = _view_relative(conn, instrument_ids, stocks)
         elif view == "technicals":
             rows = _view_technicals(conn, instrument_ids, stocks)
+        elif view == "support_resistance":
+            rows = _view_support_resistance(conn, instrument_ids, stocks)
+        elif view == "fundamentals":
+            rows = _view_fundamentals(conn, company_ids, stocks)
+        elif view == "price_volume":
+            rows = _view_price_volume(conn, instrument_ids, stocks)
         else:
             raise HTTPException(status_code=400, detail=f"Unknown view: {view}")
 
@@ -341,3 +347,147 @@ def _view_technicals(conn, instrument_ids, stocks):
             "volume_ratio": r["volume_ratio"],
         })
     return sorted(result, key=lambda x: x.get("symbol") or "")
+
+
+def _view_support_resistance(conn, instrument_ids, stocks):
+    """
+    Standard Pivot Point, R1-R3, S1-S3 calculated from previous day's H/L/C.
+    Pivot = (H + L + C) / 3
+    """
+    placeholders = ",".join("?" * len(instrument_ids))
+    rows = conn.execute(f"""
+        WITH best_per_date AS (
+            SELECT ph.instrument_id, ph.trade_date, ph.high, ph.low, ph.close,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ph.instrument_id, ph.trade_date
+                       ORDER BY CASE ph.source WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2 ELSE 3 END
+                   ) AS src_rn
+            FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+        ),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
+            FROM best_per_date WHERE src_rn = 1
+        )
+        SELECT lp.instrument_id, lp.close AS current_close,
+               pp.high AS prev_high, pp.low AS prev_low, pp.close AS prev_close
+        FROM ranked lp
+        LEFT JOIN ranked pp ON lp.instrument_id = pp.instrument_id AND pp.rn = 2
+        WHERE lp.rn = 1
+    """, instrument_ids).fetchall()
+
+    result = []
+    for r in rows:
+        s = stocks.get(r["instrument_id"], {})
+        close = r["current_close"]
+        h, l, c = r["prev_high"], r["prev_low"], r["prev_close"]
+        if h and l and c:
+            pivot = round((h + l + c) / 3, 2)
+            r1 = round(2 * pivot - l, 2)
+            s1 = round(2 * pivot - h, 2)
+            r2 = round(pivot + (h - l), 2)
+            s2 = round(pivot - (h - l), 2)
+            r3 = round(h + 2 * (pivot - l), 2)
+            s3 = round(l - 2 * (h - pivot), 2)
+        else:
+            pivot = r1 = s1 = r2 = s2 = r3 = s3 = None
+
+        result.append({
+            "symbol": s.get("symbol"), "name": s.get("company_name"),
+            "close": close, "pivot": pivot,
+            "r1": r1, "r2": r2, "r3": r3, "s1": s1, "s2": s2, "s3": s3,
+            "r1_diff_pct": round((r1 - close) / close * 100, 2) if r1 and close else None,
+            "s1_diff_pct": round((s1 - close) / close * 100, 2) if s1 and close else None,
+        })
+    return sorted(result, key=lambda x: x.get("symbol", ""))
+
+
+def _view_fundamentals(conn, company_ids, stocks):
+    """PE, PEG, PBV, EPS, Market Cap, NPM, ROE."""
+    if not company_ids:
+        return []
+    placeholders = ",".join("?" * len(company_ids))
+    concepts = ["price_to_earning", "peg_ratio", "price_to_book", "eps", "market_cap", "npm", "roe"]
+    concept_ph = ",".join("?" * len(concepts))
+    rows = conn.execute(f"""
+        SELECT f.company_id, c.concept_code, f.value
+        FROM facts f
+        JOIN sources s ON f.source_id = s.source_id
+        JOIN concepts c ON f.concept_id = c.concept_id
+        WHERE f.company_id IN ({placeholders})
+          AND c.concept_code IN ({concept_ph})
+          AND s.period_type IN ('annual', 'snapshot')
+          AND f.fact_id = (
+              SELECT f2.fact_id FROM facts f2
+              JOIN sources s2 ON f2.source_id = s2.source_id
+              JOIN concepts c2 ON f2.concept_id = c2.concept_id
+              WHERE c2.concept_code = c.concept_code AND f2.company_id = f.company_id
+                AND s2.period_type IN ('annual', 'snapshot')
+              ORDER BY f2.period_end_date DESC, f2.created_at DESC LIMIT 1
+          )
+    """, company_ids + concepts).fetchall()
+
+    by_company: dict = {}
+    for r in rows:
+        cid = r["company_id"]
+        if cid not in by_company:
+            by_company[cid] = {}
+        by_company[cid][r["concept_code"]] = r["value"]
+
+    cid_to_stock = {s["company_id"]: s for s in stocks.values() if s.get("company_id")}
+    result = []
+    for cid, vals in by_company.items():
+        s = cid_to_stock.get(cid, {})
+        result.append({
+            "symbol": s.get("symbol"), "name": s.get("company_name"),
+            "pe": vals.get("price_to_earning"), "peg": vals.get("peg_ratio"),
+            "pb": vals.get("price_to_book"), "eps": vals.get("eps"),
+            "market_cap": vals.get("market_cap"), "npm": vals.get("npm"), "roe": vals.get("roe"),
+        })
+    return sorted(result, key=lambda x: x.get("symbol", ""))
+
+
+def _view_price_volume(conn, instrument_ids, stocks):
+    """Day/Week/Month/Qtr/Year High-Low ranges."""
+    placeholders = ",".join("?" * len(instrument_ids))
+    rows = conn.execute(f"""
+        WITH best_per_date AS (
+            SELECT ph.instrument_id, ph.trade_date, ph.high, ph.low, ph.close, ph.volume,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ph.instrument_id, ph.trade_date
+                       ORDER BY CASE ph.source WHEN 'nse_bhavcopy' THEN 1 ELSE 2 END
+                   ) AS src_rn
+            FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+        ),
+        clean AS (SELECT * FROM best_per_date WHERE src_rn = 1),
+        latest AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
+            FROM clean
+        ),
+        ranges AS (
+            SELECT l.instrument_id, l.close, l.volume, l.high AS day_high, l.low AS day_low,
+                   (SELECT MAX(c.high) FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date >= date(l.trade_date, '-7 days')) AS week_high,
+                   (SELECT MIN(c.low) FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date >= date(l.trade_date, '-7 days')) AS week_low,
+                   (SELECT MAX(c.high) FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date >= date(l.trade_date, '-30 days')) AS month_high,
+                   (SELECT MIN(c.low) FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date >= date(l.trade_date, '-30 days')) AS month_low,
+                   (SELECT MAX(c.high) FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date >= date(l.trade_date, '-365 days')) AS year_high,
+                   (SELECT MIN(c.low) FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date >= date(l.trade_date, '-365 days')) AS year_low
+            FROM latest l WHERE l.rn = 1
+        )
+        SELECT * FROM ranges
+    """, instrument_ids).fetchall()
+
+    result = []
+    for r in rows:
+        s = stocks.get(r["instrument_id"], {})
+        close = r["close"]
+        def pct(low, high):
+            return round((close - low) / (high - low) * 100, 1) if low and high and high != low and close else None
+        result.append({
+            "symbol": s.get("symbol"), "name": s.get("company_name"),
+            "close": close, "volume": r["volume"],
+            "day_high": r["day_high"], "day_low": r["day_low"], "day_pct": pct(r["day_low"], r["day_high"]),
+            "week_high": r["week_high"], "week_low": r["week_low"], "week_pct": pct(r["week_low"], r["week_high"]),
+            "month_high": r["month_high"], "month_low": r["month_low"], "month_pct": pct(r["month_low"], r["month_high"]),
+            "year_high": r["year_high"], "year_low": r["year_low"], "year_pct": pct(r["year_low"], r["year_high"]),
+        })
+    return sorted(result, key=lambda x: x.get("symbol", ""))

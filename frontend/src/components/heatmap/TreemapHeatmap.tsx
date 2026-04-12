@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import type { HeatmapBlock } from "@/lib/api";
 
 interface TreemapHeatmapProps {
@@ -19,6 +20,7 @@ function getColor(changePct: number | null): string {
 }
 
 export function TreemapHeatmap({ blocks }: TreemapHeatmapProps) {
+  const router = useRouter();
   const totalCap = blocks.reduce((sum, b) => sum + (b.market_cap ?? 0), 0);
   if (totalCap === 0 || blocks.length === 0) {
     return <div className="text-muted text-xs text-center py-8">No heatmap data</div>;
@@ -44,6 +46,7 @@ export function TreemapHeatmap({ blocks }: TreemapHeatmapProps) {
               minHeight: "50px",
             }}
             title={`${block.name}\n${block.change_pct != null ? `${block.change_pct >= 0 ? "+" : ""}${block.change_pct.toFixed(2)}%` : "—"}\nMCap: ${block.market_cap?.toLocaleString("en-IN")} Cr`}
+            onClick={() => router.push(`/company/${block.symbol}`)}
           >
             <span className="text-[10px] text-white/90 font-bold truncate max-w-full">
               {block.symbol}

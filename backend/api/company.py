@@ -33,9 +33,9 @@ def company_meta(symbol: str):
 
         company_id = row["company_id"]
 
-        # Get classifications (sector, theme, etc.)
+        # Get classifications (deduped — version tracking creates multiple rows)
         classifications = conn.execute("""
-            SELECT cl.classification_type, cl.classification_name
+            SELECT DISTINCT cl.classification_type, cl.classification_name
             FROM classifications cl
             JOIN instruments i ON cl.instrument_id = i.instrument_id
             WHERE i.company_id = ?

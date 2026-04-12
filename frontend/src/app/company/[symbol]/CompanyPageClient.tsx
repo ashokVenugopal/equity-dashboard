@@ -37,8 +37,8 @@ export function CompanyPageClient({ meta, financials, prices }: CompanyPageClien
           <span>ISIN: {meta.isin}</span>
           <span>·</span>
           <span>FY: {meta.fy_end_month === 3 ? "Apr-Mar" : `Jan-Dec (${meta.fy_end_month})`}</span>
-          {meta.classifications.map((c) => (
-            <span key={`${c.classification_type}-${c.classification_name}`}>
+          {meta.classifications.map((c, i) => (
+            <span key={i}>
               · {c.classification_name}
             </span>
           ))}

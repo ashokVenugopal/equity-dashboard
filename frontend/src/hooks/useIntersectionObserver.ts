@@ -18,7 +18,7 @@ export function useHashObserver(sectionIds: string[], threshold = 0.5) {
           if (entry.isIntersecting) {
             const id = entry.target.id;
             if (id && window.location.hash !== `#${id}`) {
-              history.replaceState(null, "", `#${id}`);
+              history.pushState(null, "", `#${id}`);
             }
           }
         }

@@ -1,10 +1,10 @@
 "use client";
 
-import { createContext, useContext, useRef, useCallback, useState } from "react";
+import { createContext, useContext, useRef, useCallback, useState, useEffect } from "react";
 
 interface CacheEntry<T> {
   data: T;
-  loadedAt: number; // Unix ms
+  loadedAt: number;
   key: string;
 }
 
@@ -17,7 +17,7 @@ interface CacheContextType {
 
 const CacheContext = createContext<CacheContextType | null>(null);
 
-const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000; // 5 minutes
+const DEFAULT_MAX_AGE_MS = 5 * 60 * 1000;
 
 export function CacheProvider({ children }: { children: React.ReactNode }) {
   const store = useRef<Map<string, CacheEntry<unknown>>>(new Map());
@@ -52,7 +52,7 @@ export function CacheProvider({ children }: { children: React.ReactNode }) {
 /**
  * Hook for cached data fetching.
  * Returns cached data on tab switch, fetches fresh data if stale.
- * Shows "loaded at" timestamp and supports manual refresh.
+ * Uses useEffect for async fetch (no side-effects during render).
  */
 export function useCachedData<T>(
   key: string,
@@ -66,16 +66,13 @@ export function useCachedData<T>(
   error: string | null;
 } {
   const cache = useContext(CacheContext);
-  const [data, setData] = useState<T | null>(() => {
-    return cache?.get<T>(key)?.data ?? null;
-  });
+  const [data, setData] = useState<T | null>(() => cache?.get<T>(key)?.data ?? null);
   const [loading, setLoading] = useState(false);
   const [loadedAt, setLoadedAt] = useState<Date | null>(() => {
     const entry = cache?.get<T>(key);
     return entry ? new Date(entry.loadedAt) : null;
   });
   const [error, setError] = useState<string | null>(null);
-  const fetchedRef = useRef(false);
 
   const doFetch = useCallback(async (force = false) => {
     if (!force && cache) {
@@ -102,14 +99,17 @@ export function useCachedData<T>(
     }
   }, [key, fetcher, cache, maxAgeMs]);
 
-  // Auto-fetch on first render if no cached data or stale
-  if (!fetchedRef.current) {
-    fetchedRef.current = true;
+  // Auto-fetch on mount or when key changes — properly in useEffect, not during render
+  useEffect(() => {
     const entry = cache?.get<T>(key);
     if (!entry || cache?.isStale(key, maxAgeMs)) {
       doFetch();
+    } else {
+      // Update state from cache if we have fresh data
+      setData(entry.data);
+      setLoadedAt(new Date(entry.loadedAt));
     }
-  }
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const refresh = useCallback(() => {
     cache?.invalidate(key);

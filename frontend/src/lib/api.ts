@@ -318,6 +318,18 @@ export function getFundFlowMonthly(segment = "CASH", limit = 24): Promise<{ segm
   return apiFetch(`/api/fundflow/monthly?segment=${segment}&limit=${limit}`);
 }
 
+export function getFundFlowYearly(): Promise<{ flows: Record<string, unknown>[] }> {
+  return apiFetch("/api/fundflow/yearly");
+}
+
+export function getFundFlowDetailed(
+  timeframe = "daily", view = "cash_provisional", foSub?: string, limit = 30,
+): Promise<{ timeframe: string; view: string; aggregations: Record<string, unknown>[]; rows: Record<string, unknown>[] }> {
+  const params = new URLSearchParams({ timeframe, view, limit: String(limit) });
+  if (foSub) params.set("fo_sub", foSub);
+  return apiFetch(`/api/fundflow/detailed?${params}`);
+}
+
 // ── Index Detail endpoints ──
 
 export function getIndexDetailOverview(slug: string): Promise<Record<string, unknown>> {

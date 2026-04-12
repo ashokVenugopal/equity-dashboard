@@ -6,8 +6,9 @@ import { usePathname } from "next/navigation";
 const NAV_ITEMS = [
   { href: "/", label: "Overview", icon: "◆" },
   { href: "/trade-setup", label: "Trade Setup", icon: "▸" },
-  { href: "/nifty", label: "NIFTY", icon: "━" },
-  { href: "/banknifty", label: "BANKNIFTY", icon: "━" },
+  { href: "/fundflow", label: "Fund Flows", icon: "⇄" },
+  { href: "/index-view/nifty-50", label: "NIFTY 50", icon: "━" },
+  { href: "/index-view/nifty-bank", label: "BANKNIFTY", icon: "━" },
   { href: "/sectors", label: "Sectors", icon: "▦" },
   { href: "/heatmaps", label: "Heatmaps", icon: "▥" },
   { href: "/global", label: "Global", icon: "◎" },

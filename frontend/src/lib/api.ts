@@ -304,6 +304,30 @@ export function getHeatmap(index: string): Promise<{ index_name: string; blocks:
   return apiFetch(`/api/heatmap/${index}`);
 }
 
+// ── FundFlow endpoints ──
+
+export function getFundFlowSummary(): Promise<Record<string, unknown>> {
+  return apiFetch("/api/fundflow/summary");
+}
+
+export function getFundFlowDaily(segment = "CASH", limit = 30): Promise<{ segment: string; flows: Record<string, unknown>[] }> {
+  return apiFetch(`/api/fundflow/daily?segment=${segment}&limit=${limit}`);
+}
+
+export function getFundFlowMonthly(segment = "CASH", limit = 24): Promise<{ segment: string; flows: Record<string, unknown>[] }> {
+  return apiFetch(`/api/fundflow/monthly?segment=${segment}&limit=${limit}`);
+}
+
+// ── Index Detail endpoints ──
+
+export function getIndexDetailOverview(slug: string): Promise<Record<string, unknown>> {
+  return apiFetch(`/api/index-detail/${slug}/overview`);
+}
+
+export function getIndexDetailTable(slug: string, view = "overview"): Promise<{ index_name: string; view: string; rows: Record<string, unknown>[]; count: number }> {
+  return apiFetch(`/api/index-detail/${slug}/table?view=${view}`);
+}
+
 // ── Global endpoints ──
 
 export function getGlobalOverview(): Promise<{ groups: Record<string, GlobalInstrument[]>; total: number }> {

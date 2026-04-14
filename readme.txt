@@ -36,13 +36,14 @@ Prerequisites (already done)
   oard
   source .venv/bin/activate
   pip install ../equity-shared/
-  PYTHONPATH=. python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000
-  --reload
+  PYTHONPATH=. python -m uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload
 
   Terminal 2 — Frontend (Next.js on :3000)
-  cd /Users/ashokvenugopal/Documents/experiments/equity-experiments/equity-dashb
-  oard/frontend
+  cd /Users/ashokvenugopal/Documents/experiments/equity-experiments/equity-dashboard/frontend
+      #sometimes the library gets corrected, and you run this first -
+      cd frontend && rm -rf .next && npm run dev 
   npm run dev
+
 
   Then open http://localhost:3000 in your browser.
 

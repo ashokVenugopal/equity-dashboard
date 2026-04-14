@@ -17,6 +17,21 @@ interface ConceptSuggestion {
   code: string;
 }
 
+interface PinnedScreen {
+  name: string;
+  expression: string;
+  createdAt: string;
+}
+
+function getPinnedScreens(): PinnedScreen[] {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem("screener_pins") || "[]"); } catch { return []; }
+}
+
+function savePinnedScreens(pins: PinnedScreen[]) {
+  if (typeof window !== "undefined") localStorage.setItem("screener_pins", JSON.stringify(pins));
+}
+
 export default function ScreenerPage() {
   const cached = useCachedScreenerState();
   const [expression, setExpression] = useState(cached.data?.expression || "");
@@ -26,12 +41,36 @@ export default function ScreenerPage() {
   const [loading, setLoading] = useState(false);
   const [ranAt, setRanAt] = useState<Date | null>(cached.data ? new Date() : null);
 
+  // Pinned screens
+  const [pins, setPins] = useState<PinnedScreen[]>(() => getPinnedScreens());
+  const [showPins, setShowPins] = useState(false);
+
   // Concept suggestions
   const [suggestions, setSuggestions] = useState<ConceptSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedSuggIdx, setSelectedSuggIdx] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  function handlePin() {
+    if (!expression.trim()) return;
+    const name = expression.trim().slice(0, 60);
+    const updated = [{ name, expression: expression.trim(), createdAt: new Date().toISOString() }, ...pins.filter(p => p.expression !== expression.trim())].slice(0, 20);
+    setPins(updated);
+    savePinnedScreens(updated);
+  }
+
+  function handleLoadPin(pin: PinnedScreen) {
+    setExpression(pin.expression);
+    setShowPins(false);
+    inputRef.current?.focus();
+  }
+
+  function handleDeletePin(expr: string) {
+    const updated = pins.filter(p => p.expression !== expr);
+    setPins(updated);
+    savePinnedScreens(updated);
+  }
 
   async function handleExecute() {
     if (!expression.trim()) return;
@@ -40,12 +79,21 @@ export default function ScreenerPage() {
     try {
       const data = await searchFilter(expression);
       setResults(data.results);
+      // Build unit map from parsed conditions
+      const unitMap: Record<string, string> = {};
+      for (const cond of data.parsed_conditions) {
+        if (cond.unit) unitMap[cond.concept_code] = cond.unit;
+      }
       const cols = data.results.length > 0
-        ? Object.keys(data.results[0]).map((k) => ({
-            key: k,
-            label: k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()),
-            align: (k === "symbol" || k === "name" ? "left" : "right") as "left" | "right",
-          }))
+        ? Object.keys(data.results[0]).map((k) => {
+            const unit = unitMap[k];
+            const suffix = unit === "percent" ? " (%)" : unit === "ratio" ? " (x)" : unit === "inr_cr" ? " (Cr)" : unit === "inr" ? " (Rs)" : unit === "days" ? " (days)" : "";
+            return {
+              key: k,
+              label: k.replace(/_/g, " ").replace(/\b\w/g, (c: string) => c.toUpperCase()) + suffix,
+              align: (k === "symbol" || k === "name" ? "left" : "right") as "left" | "right",
+            };
+          })
         : [];
       setColumns(cols);
       const errors = data.parse_errors.length ? ` | Errors: ${data.parse_errors.join(", ")}` : "";
@@ -142,6 +190,24 @@ export default function ScreenerPage() {
             className="flex-1 bg-surface border border-border rounded px-3 py-2 text-sm font-mono text-foreground outline-none focus:border-accent/50 placeholder:text-muted"
           />
           <button
+            onClick={handlePin}
+            disabled={!expression.trim()}
+            title="Pin this screen"
+            className="px-2 py-2 border border-border rounded text-xs text-muted hover:text-accent hover:border-accent/30 transition-colors disabled:opacity-30"
+          >
+            Pin
+          </button>
+          <button
+            onClick={() => setShowPins(!showPins)}
+            className={`px-2 py-2 border rounded text-xs transition-colors ${
+              showPins ? "border-accent text-accent bg-accent/10" : "border-border text-muted hover:text-foreground"
+            } ${pins.length === 0 ? "opacity-30" : ""}`}
+            disabled={pins.length === 0}
+            title={`${pins.length} pinned screen(s)`}
+          >
+            {pins.length > 0 ? `${pins.length}` : "0"}
+          </button>
+          <button
             onClick={handleExecute}
             disabled={loading}
             className="px-4 py-2 bg-accent/10 text-accent border border-accent/30 rounded text-xs font-bold hover:bg-accent/20 transition-colors disabled:opacity-50"
@@ -149,6 +215,36 @@ export default function ScreenerPage() {
             {loading ? "Running..." : "Execute"}
           </button>
         </div>
+
+        {/* Pinned screens dropdown */}
+        {showPins && pins.length > 0 && (
+          <div className="absolute z-20 top-full right-0 mt-1 bg-surface border border-border rounded shadow-xl w-[480px] max-h-[300px] overflow-y-auto">
+            <div className="px-3 py-2 border-b border-border text-[10px] text-muted uppercase tracking-wider font-medium">
+              Pinned Screens
+            </div>
+            {pins.map((pin) => (
+              <div
+                key={pin.expression}
+                className="flex items-center justify-between px-3 py-2 hover:bg-surface-hover transition-colors group"
+              >
+                <button
+                  className="flex-1 text-left text-xs font-mono text-foreground truncate"
+                  onClick={() => handleLoadPin(pin)}
+                  title={pin.expression}
+                >
+                  {pin.name}
+                </button>
+                <button
+                  onClick={() => handleDeletePin(pin.expression)}
+                  className="text-muted hover:text-negative text-[10px] ml-2 opacity-0 group-hover:opacity-100 transition-opacity"
+                  title="Remove pin"
+                >
+                  x
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {/* Concept suggestions dropdown */}
         {showSuggestions && suggestions.length > 0 && (

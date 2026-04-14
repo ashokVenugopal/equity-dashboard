@@ -186,7 +186,12 @@ def filter_companies(body: FilterRequest):
 
                 if concept_code:
                     sql_op = {">=": ">=", "<=": "<=", ">": ">", "<": "<", "=": "=", "!=": "!="}.get(op, ">")
-                    conditions.append({"concept_code": concept_code, "op": sql_op, "value": value, "raw": part})
+                    # Look up the concept's unit for frontend formatting
+                    unit_row = conn.execute(
+                        "SELECT unit FROM concepts WHERE concept_code = ?", (concept_code,)
+                    ).fetchone()
+                    unit = unit_row["unit"] if unit_row else None
+                    conditions.append({"concept_code": concept_code, "op": sql_op, "value": value, "raw": part, "unit": unit})
                 else:
                     parse_errors.append(f"Unknown concept: '{concept_raw}'")
             else:

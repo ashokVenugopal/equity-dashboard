@@ -286,7 +286,7 @@ export function searchCompanies(q: string): Promise<{ query: string; results: { 
 
 export function searchFilter(expression: string, limit = 50): Promise<{
   expression: string;
-  parsed_conditions: { concept_code: string; op: string; value: number; raw: string }[];
+  parsed_conditions: { concept_code: string; op: string; value: number; raw: string; unit?: string }[];
   parse_errors: string[];
   results: Record<string, unknown>[];
   count: number;

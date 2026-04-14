@@ -216,7 +216,7 @@ def filter_companies(body: FilterRequest):
                     JOIN sources s ON f.source_id = s.source_id
                     JOIN concepts co ON f.concept_id = co.concept_id
                     WHERE co.concept_code = '{cond["concept_code"]}'
-                      AND s.period_type IN ('annual', 'snapshot', 'calculated')
+                      AND s.period_type IN ('annual', 'snapshot')
                       AND s.statement_type = 'consolidated'
                       AND f.fact_id = (
                           SELECT f2.fact_id FROM facts f2
@@ -224,7 +224,7 @@ def filter_companies(body: FilterRequest):
                           JOIN concepts co2 ON f2.concept_id = co2.concept_id
                           WHERE co2.concept_code = '{cond["concept_code"]}'
                             AND f2.company_id = f.company_id
-                            AND s2.period_type IN ('annual', 'snapshot', 'calculated')
+                            AND s2.period_type IN ('annual', 'snapshot')
                             AND s2.statement_type = 'consolidated'
                           ORDER BY f2.period_end_date DESC,
                               CASE s2.derivation WHEN 'original' THEN 1 WHEN 'aggregated' THEN 2 ELSE 3 END,

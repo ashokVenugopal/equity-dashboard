@@ -1,7 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import { createChart, type IChartApi, ColorType, CrosshairMode, CandlestickSeries, HistogramSeries } from "lightweight-charts";
+import { useEffect, useRef, useState } from "react";
+import {
+  createChart,
+  type IChartApi,
+  type ISeriesApi,
+  ColorType,
+  CrosshairMode,
+  CandlestickSeries,
+  HistogramSeries,
+} from "lightweight-charts";
+import { OHLCVTooltip } from "./ChartTooltip";
 import type { PriceBar } from "@/lib/api";
 
 interface PriceChartProps {
@@ -12,7 +21,12 @@ interface PriceChartProps {
 
 export function PriceChart({ data, height = 350, showVolume = true }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [chartState, setChartState] = useState<{
+    chart: IChartApi;
+    candleSeries: ISeriesApi<"Candlestick">;
+    volumeSeries: ISeriesApi<"Histogram"> | null;
+  } | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return;
@@ -41,7 +55,6 @@ export function PriceChart({ data, height = 350, showVolume = true }: PriceChart
         borderColor: "#2a2a2a",
       },
     });
-    chartRef.current = chart;
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
       upColor: "#00c853",
@@ -62,8 +75,9 @@ export function PriceChart({ data, height = 350, showVolume = true }: PriceChart
       }))
     );
 
+    let volumeSeries: ISeriesApi<"Histogram"> | null = null;
     if (showVolume) {
-      const volumeSeries = chart.addSeries(HistogramSeries, {
+      volumeSeries = chart.addSeries(HistogramSeries, {
         color: "#2a2a2a",
         priceFormat: { type: "volume" },
         priceScaleId: "volume",
@@ -84,6 +98,8 @@ export function PriceChart({ data, height = 350, showVolume = true }: PriceChart
 
     chart.timeScale().fitContent();
 
+    setChartState({ chart, candleSeries, volumeSeries });
+
     const handleResize = () => {
       if (containerRef.current) {
         chart.applyOptions({ width: containerRef.current.clientWidth });
@@ -93,8 +109,8 @@ export function PriceChart({ data, height = 350, showVolume = true }: PriceChart
 
     return () => {
       window.removeEventListener("resize", handleResize);
+      setChartState(null);
       chart.remove();
-      chartRef.current = null;
     };
   }, [data, height, showVolume]);
 
@@ -102,5 +118,17 @@ export function PriceChart({ data, height = 350, showVolume = true }: PriceChart
     return <div className="text-muted text-xs text-center py-8">No price data available</div>;
   }
 
-  return <div ref={containerRef} className="w-full" />;
+  return (
+    <div ref={wrapperRef} className="relative w-full">
+      <div ref={containerRef} className="w-full" />
+      {chartState && (
+        <OHLCVTooltip
+          chart={chartState.chart}
+          containerRef={wrapperRef}
+          candleSeries={chartState.candleSeries}
+          volumeSeries={chartState.volumeSeries}
+        />
+      )}
+    </div>
+  );
 }

@@ -98,6 +98,18 @@ export function getHealth(): Promise<Record<string, unknown>> {
   return apiFetch("/api/health");
 }
 
+export interface DataFreshness {
+  last_trading_day: string | null;
+  last_price_ingest: string | null;
+  last_index_price: string | null;
+  last_fundamental_ingest: string | null;
+  last_flow_date: string | null;
+}
+
+export function getDataFreshness(): Promise<DataFreshness> {
+  return apiFetch("/api/data-freshness");
+}
+
 // ── Index endpoints ──
 
 export interface Constituent {
@@ -338,6 +350,26 @@ export function getIndexDetailOverview(slug: string): Promise<Record<string, unk
 
 export function getIndexDetailTable(slug: string, view = "overview"): Promise<{ index_name: string; view: string; rows: Record<string, unknown>[]; count: number }> {
   return apiFetch(`/api/index-detail/${slug}/table?view=${view}`);
+}
+
+export interface IndexPerformanceItem {
+  key: string;
+  label: string;
+  change_pct: number | null;
+  advances?: number;
+  declines?: number;
+  total?: number;
+}
+
+export interface IndexStats {
+  index_name: string;
+  performance: IndexPerformanceItem[];
+  technicals: Record<string, number | null>;
+  support_resistance: Record<string, number | null>;
+}
+
+export function getIndexDetailStats(slug: string): Promise<IndexStats> {
+  return apiFetch(`/api/index-detail/${slug}/stats`);
 }
 
 // ── Global endpoints ──

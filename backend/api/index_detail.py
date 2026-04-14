@@ -55,6 +55,7 @@ def index_overview(slug: str):
                        ) AS rn
                 FROM price_history ph
                 WHERE ph.instrument_id = ?
+                  AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
                 ORDER BY ph.trade_date DESC LIMIT 2
             """, (idx_inst["instrument_id"],)).fetchall()
 
@@ -98,6 +99,224 @@ def index_overview(slug: str):
         conn.close()
 
 
+@router.get("/{slug}/stats")
+def index_stats(slug: str):
+    """
+    Index-level stats for performance cards and technical panels:
+    - Performance at multiple timeframes with constituent breadth distribution
+    - SMA / EMA values for the index
+    - Support & Resistance levels
+    """
+    logger.info("GET /api/index-detail/%s/stats", slug)
+    t0 = time.time()
+    index_name = _resolve_index_name(slug)
+    conn = get_pipeline_connection()
+    try:
+        # Find the index instrument
+        idx_inst = conn.execute("""
+            SELECT instrument_id, symbol, name
+            FROM instruments
+            WHERE instrument_type = 'index' AND is_active = 1
+              AND (symbol = ? OR name = ?)
+            LIMIT 1
+        """, (index_name, index_name)).fetchone()
+
+        if not idx_inst:
+            slug_symbol = slug.upper().replace("-", "")
+            idx_inst = conn.execute("""
+                SELECT instrument_id, symbol, name FROM instruments
+                WHERE instrument_type = 'index' AND symbol LIKE ? AND is_active = 1
+                LIMIT 1
+            """, (f"%{slug_symbol}%",)).fetchone()
+
+        if not idx_inst:
+            logger.warning("GET /api/index-detail/%s/stats — index instrument not found", slug)
+
+        # ── Index Performance at timeframes ──
+        performance = []
+        if idx_inst:
+            perf_rows = conn.execute("""
+                WITH best_per_date AS (
+                    SELECT trade_date, close,
+                           ROW_NUMBER() OVER (PARTITION BY trade_date
+                               ORDER BY CASE source WHEN 'nse_index' THEN 1 WHEN 'yahoo_finance' THEN 2 ELSE 3 END
+                           ) AS src_rn
+                    FROM price_history WHERE instrument_id = ?
+                ),
+                clean AS (SELECT trade_date, close FROM best_per_date WHERE src_rn = 1),
+                latest AS (
+                    SELECT close, trade_date FROM clean ORDER BY trade_date DESC LIMIT 1
+                )
+                SELECT l.close AS current_close, l.trade_date,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-1 day') ORDER BY c.trade_date DESC LIMIT 1) AS close_1d,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-7 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1w,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-30 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1m,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-90 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_3m,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-180 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_6m,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-365 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1y
+                FROM latest l
+            """, (idx_inst["instrument_id"],)).fetchone()
+
+            if perf_rows:
+                cur = perf_rows["current_close"]
+                for key, label, prev_key in [
+                    ("1d", "1 Day", "close_1d"), ("1w", "1 Week", "close_1w"),
+                    ("1m", "1 Month", "close_1m"), ("3m", "3 Month", "close_3m"),
+                    ("6m", "6 Month", "close_6m"), ("1y", "1 Year", "close_1y"),
+                ]:
+                    prev = perf_rows[prev_key]
+                    pct = round((cur - prev) / prev * 100, 2) if prev and prev > 0 else None
+                    performance.append({"key": key, "label": label, "change_pct": pct})
+
+        # ── Constituent breadth per timeframe ──
+        constituents = conn.execute("""
+            SELECT i.instrument_id
+            FROM classifications cl
+            JOIN instruments i ON cl.instrument_id = i.instrument_id
+            WHERE cl.classification_type = 'index_constituent'
+              AND cl.classification_name = ?
+              AND (cl.effective_to IS NULL OR cl.effective_to >= date('now'))
+              AND i.is_active = 1
+            GROUP BY i.instrument_id
+        """, (index_name,)).fetchall()
+
+        constituent_ids = [r["instrument_id"] for r in constituents]
+        total = len(constituent_ids)
+
+        if constituent_ids:
+            placeholders = ",".join("?" * len(constituent_ids))
+            breadth_rows = conn.execute(f"""
+                WITH best_per_date AS (
+                    SELECT ph.instrument_id, ph.trade_date, ph.close,
+                           ROW_NUMBER() OVER (
+                               PARTITION BY ph.instrument_id, ph.trade_date
+                               ORDER BY CASE ph.source WHEN 'nse_bhavcopy' THEN 1 ELSE 2 END
+                           ) AS src_rn
+                    FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+                ),
+                clean AS (SELECT * FROM best_per_date WHERE src_rn = 1),
+                latest AS (
+                    SELECT instrument_id, close, trade_date,
+                           ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
+                    FROM clean
+                ),
+                lookbacks AS (
+                    SELECT l.instrument_id, l.close AS cur,
+                           (SELECT c.close FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date <= date(l.trade_date, '-1 day') ORDER BY c.trade_date DESC LIMIT 1) AS p_1d,
+                           (SELECT c.close FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date <= date(l.trade_date, '-7 days') ORDER BY c.trade_date DESC LIMIT 1) AS p_1w,
+                           (SELECT c.close FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date <= date(l.trade_date, '-30 days') ORDER BY c.trade_date DESC LIMIT 1) AS p_1m,
+                           (SELECT c.close FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date <= date(l.trade_date, '-90 days') ORDER BY c.trade_date DESC LIMIT 1) AS p_3m,
+                           (SELECT c.close FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date <= date(l.trade_date, '-180 days') ORDER BY c.trade_date DESC LIMIT 1) AS p_6m,
+                           (SELECT c.close FROM clean c WHERE c.instrument_id = l.instrument_id AND c.trade_date <= date(l.trade_date, '-365 days') ORDER BY c.trade_date DESC LIMIT 1) AS p_1y
+                    FROM latest l WHERE l.rn = 1
+                )
+                SELECT
+                    SUM(CASE WHEN p_1d > 0 AND cur > p_1d THEN 1 ELSE 0 END) AS adv_1d,
+                    SUM(CASE WHEN p_1w > 0 AND cur > p_1w THEN 1 ELSE 0 END) AS adv_1w,
+                    SUM(CASE WHEN p_1m > 0 AND cur > p_1m THEN 1 ELSE 0 END) AS adv_1m,
+                    SUM(CASE WHEN p_3m > 0 AND cur > p_3m THEN 1 ELSE 0 END) AS adv_3m,
+                    SUM(CASE WHEN p_6m > 0 AND cur > p_6m THEN 1 ELSE 0 END) AS adv_6m,
+                    SUM(CASE WHEN p_1y > 0 AND cur > p_1y THEN 1 ELSE 0 END) AS adv_1y
+                FROM lookbacks
+            """, constituent_ids).fetchone()
+
+            if breadth_rows:
+                for p, bkey in zip(performance, ["adv_1d", "adv_1w", "adv_1m", "adv_3m", "adv_6m", "adv_1y"]):
+                    adv = breadth_rows[bkey] or 0
+                    p["advances"] = adv
+                    p["declines"] = total - adv
+                    p["total"] = total
+
+        # ── Index Technicals (SMA / RSI) ──
+        technicals = {}
+        if idx_inst:
+            tech_rows = conn.execute("""
+                SELECT dt.indicator_code, dt.value
+                FROM derived_technicals dt
+                WHERE dt.instrument_id = ?
+                  AND dt.indicator_code IN ('dma_50', 'dma_200', 'rsi_14')
+                  AND dt.trade_date = (
+                      SELECT MAX(dt2.trade_date) FROM derived_technicals dt2
+                      WHERE dt2.instrument_id = dt.instrument_id AND dt2.indicator_code = dt.indicator_code
+                  )
+            """, (idx_inst["instrument_id"],)).fetchall()
+            for r in tech_rows:
+                technicals[r["indicator_code"]] = r["value"]
+
+            # Also compute SMA 30 and SMA 100 from price history if not in derived_technicals
+            for period in [30, 100]:
+                key = f"dma_{period}"
+                if key not in technicals:
+                    sma_row = conn.execute("""
+                        WITH best_per_date AS (
+                            SELECT trade_date, close,
+                                   ROW_NUMBER() OVER (PARTITION BY trade_date
+                                       ORDER BY CASE source WHEN 'nse_index' THEN 1 ELSE 2 END
+                                   ) AS src_rn
+                            FROM price_history WHERE instrument_id = ?
+                        )
+                        SELECT AVG(close) AS sma
+                        FROM (SELECT close FROM best_per_date WHERE src_rn = 1 ORDER BY trade_date DESC LIMIT ?)
+                    """, (idx_inst["instrument_id"], period)).fetchone()
+                    if sma_row and sma_row["sma"]:
+                        technicals[key] = round(sma_row["sma"], 2)
+
+        # ── Index S&R (from prev day H/L/C) ──
+        support_resistance = {}
+        if idx_inst:
+            sr_row = conn.execute("""
+                WITH best_per_date AS (
+                    SELECT trade_date, high, low, close,
+                           ROW_NUMBER() OVER (PARTITION BY trade_date
+                               ORDER BY CASE source WHEN 'nse_index' THEN 1 ELSE 2 END
+                           ) AS src_rn
+                    FROM price_history WHERE instrument_id = ?
+                ),
+                ranked AS (
+                    SELECT *, ROW_NUMBER() OVER (ORDER BY trade_date DESC) AS rn
+                    FROM best_per_date WHERE src_rn = 1
+                )
+                SELECT high, low, close FROM ranked WHERE rn = 2
+            """, (idx_inst["instrument_id"],)).fetchone()
+
+            if sr_row and sr_row["high"] and sr_row["low"] and sr_row["close"]:
+                h, l, c = sr_row["high"], sr_row["low"], sr_row["close"]
+                pivot = round((h + l + c) / 3, 2)
+                support_resistance = {
+                    "pivot": pivot,
+                    "r1": round(2 * pivot - l, 2),
+                    "r2": round(pivot + (h - l), 2),
+                    "r3": round(h + 2 * (pivot - l), 2),
+                    "s1": round(2 * pivot - h, 2),
+                    "s2": round(pivot - (h - l), 2),
+                    "s3": round(l - 2 * (h - pivot), 2),
+                }
+
+        elapsed = time.time() - t0
+        perf_count = sum(1 for p in performance if p.get("change_pct") is not None)
+        tech_count = len(technicals)
+        sr_count = len(support_resistance)
+        if perf_count == 0:
+            logger.warning("GET /api/index-detail/%s/stats — no performance data available", slug)
+        if tech_count == 0:
+            logger.warning("GET /api/index-detail/%s/stats — no technical indicators available", slug)
+        logger.info(
+            "GET /api/index-detail/%s/stats — %d perf timeframes, %d technicals, %d S&R levels, %d constituents — %.3fs",
+            slug, perf_count, tech_count, sr_count, total, elapsed,
+        )
+        return {
+            "index_name": index_name,
+            "performance": performance,
+            "technicals": technicals,
+            "support_resistance": support_resistance,
+        }
+    except Exception as e:
+        logger.error("GET /api/index-detail/%s/stats — failed: %s", slug, e)
+        raise
+    finally:
+        conn.close()
+
+
 @router.get("/{slug}/table")
 def index_table(
     slug: str,
@@ -135,7 +354,9 @@ def index_table(
         company_ids = [r["company_id"] for r in base if r["company_id"]]
         stocks = {r["instrument_id"]: dict(r) for r in base}
 
-        if view == "overview":
+        if view == "this_view":
+            rows = _view_this_view(conn, instrument_ids, stocks)
+        elif view == "overview":
             rows = _view_overview(conn, instrument_ids, stocks)
         elif view == "shareholding":
             rows = _view_shareholding(conn, company_ids, stocks)
@@ -177,6 +398,7 @@ def _view_overview(conn, instrument_ids, stocks):
                        END
                    ) AS src_rn
             FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+              AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
         ),
         ranked AS (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
@@ -363,6 +585,7 @@ def _view_support_resistance(conn, instrument_ids, stocks):
                        ORDER BY CASE ph.source WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2 ELSE 3 END
                    ) AS src_rn
             FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+              AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
         ),
         ranked AS (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
@@ -491,3 +714,128 @@ def _view_price_volume(conn, instrument_ids, stocks):
             "year_high": r["year_high"], "year_low": r["year_low"], "year_pct": pct(r["year_low"], r["year_high"]),
         })
     return sorted(result, key=lambda x: x.get("symbol", ""))
+
+
+def _view_this_view(conn, instrument_ids, stocks):
+    """
+    Trendlyne 'This View': LTP, change%, market cap, volume,
+    3M sparkline data, and 52W high-low range with position indicator.
+    """
+    logger.info("Building this_view for %d instruments ...", len(instrument_ids))
+    placeholders = ",".join("?" * len(instrument_ids))
+
+    # Latest price + change + 52W range
+    price_rows = conn.execute(f"""
+        WITH best_per_date AS (
+            SELECT ph.instrument_id, ph.trade_date, ph.close, ph.volume,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ph.instrument_id, ph.trade_date
+                       ORDER BY CASE ph.source WHEN 'nse_bhavcopy' THEN 1 WHEN 'bse_bhavcopy' THEN 2 ELSE 3 END
+                   ) AS src_rn
+            FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+              AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
+        ),
+        clean AS (SELECT * FROM best_per_date WHERE src_rn = 1),
+        ranked AS (
+            SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
+            FROM clean
+        ),
+        ranges AS (
+            SELECT r.instrument_id, r.close, r.volume, r.trade_date,
+                   pv.close AS prev_close,
+                   CASE WHEN pv.close > 0 THEN ROUND((r.close - pv.close) / pv.close * 100, 2) ELSE NULL END AS change_pct,
+                   (SELECT MAX(c.close) FROM clean c WHERE c.instrument_id = r.instrument_id AND c.trade_date >= date(r.trade_date, '-365 days')) AS high_52w,
+                   (SELECT MIN(c.close) FROM clean c WHERE c.instrument_id = r.instrument_id AND c.trade_date >= date(r.trade_date, '-365 days')) AS low_52w
+            FROM ranked r
+            LEFT JOIN ranked pv ON r.instrument_id = pv.instrument_id AND pv.rn = 2
+            WHERE r.rn = 1
+        )
+        SELECT * FROM ranges
+    """, instrument_ids).fetchall()
+
+    price_map = {r["instrument_id"]: dict(r) for r in price_rows}
+
+    # 3M sparkline: last 90 days of closes per instrument
+    sparkline_rows = conn.execute(f"""
+        WITH best_per_date AS (
+            SELECT ph.instrument_id, ph.trade_date, ph.close,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY ph.instrument_id, ph.trade_date
+                       ORDER BY CASE ph.source WHEN 'nse_bhavcopy' THEN 1 ELSE 2 END
+                   ) AS src_rn
+            FROM price_history ph WHERE ph.instrument_id IN ({placeholders})
+        ),
+        clean AS (SELECT * FROM best_per_date WHERE src_rn = 1),
+        numbered AS (
+            SELECT instrument_id, trade_date, close,
+                   ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
+            FROM clean
+        )
+        SELECT instrument_id, trade_date, close
+        FROM numbered WHERE rn <= 90
+        ORDER BY instrument_id, trade_date ASC
+    """, instrument_ids).fetchall()
+
+    sparklines: dict = {}
+    for r in sparkline_rows:
+        iid = r["instrument_id"]
+        if iid not in sparklines:
+            sparklines[iid] = []
+        sparklines[iid].append({"t": r["trade_date"], "c": r["close"]})
+
+    # Market cap from facts
+    company_ids = [s["company_id"] for s in stocks.values() if s.get("company_id")]
+    mcap_map = {}
+    if company_ids:
+        cp = ",".join("?" * len(company_ids))
+        mcap_rows = conn.execute(f"""
+            SELECT f.company_id, f.value
+            FROM facts f
+            JOIN sources s ON f.source_id = s.source_id
+            JOIN concepts c ON f.concept_id = c.concept_id
+            WHERE f.company_id IN ({cp})
+              AND c.concept_code = 'market_cap'
+              AND s.period_type IN ('annual', 'snapshot')
+              AND f.fact_id = (
+                  SELECT f2.fact_id FROM facts f2
+                  JOIN sources s2 ON f2.source_id = s2.source_id
+                  JOIN concepts c2 ON f2.concept_id = c2.concept_id
+                  WHERE c2.concept_code = 'market_cap' AND f2.company_id = f.company_id
+                    AND s2.period_type IN ('annual', 'snapshot')
+                  ORDER BY f2.period_end_date DESC, f2.created_at DESC LIMIT 1
+              )
+        """, company_ids).fetchall()
+        for r in mcap_rows:
+            mcap_map[r["company_id"]] = r["value"]
+
+    result = []
+    for iid, s in stocks.items():
+        p = price_map.get(iid, {})
+        close = p.get("close")
+        high_52w = p.get("high_52w")
+        low_52w = p.get("low_52w")
+
+        range_pct = None
+        if close and high_52w and low_52w and high_52w != low_52w:
+            range_pct = round((close - low_52w) / (high_52w - low_52w) * 100, 1)
+
+        result.append({
+            "symbol": s.get("symbol"),
+            "name": s.get("company_name"),
+            "close": close,
+            "change_pct": p.get("change_pct"),
+            "volume": p.get("volume"),
+            "market_cap": mcap_map.get(s.get("company_id")),
+            "high_52w": high_52w,
+            "low_52w": low_52w,
+            "range_pct": range_pct,
+            "sparkline": sparklines.get(iid, []),
+        })
+    with_sparkline = sum(1 for r in result if r.get("sparkline"))
+    with_range = sum(1 for r in result if r.get("range_pct") is not None)
+    with_mcap = sum(1 for r in result if r.get("market_cap") is not None)
+    logger.info(
+        "this_view built — %d rows, %d with sparkline, %d with 52W range, %d with mcap",
+        len(result), with_sparkline, with_range, with_mcap,
+    )
+    return sorted(result, key=lambda x: x.get("symbol") or "")

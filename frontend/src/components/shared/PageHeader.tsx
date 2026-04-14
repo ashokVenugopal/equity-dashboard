@@ -1,10 +1,15 @@
 "use client";
 
+import { useDataFreshness } from "@/lib/freshness";
+import type { DataFreshness } from "@/lib/api";
+
 interface PageHeaderProps {
   title: string;
   loadedAt: Date | null;
   loading?: boolean;
   onRefresh?: () => void;
+  /** Which freshness date to highlight: "market" (default), "fundamental", "flow" */
+  dataType?: "market" | "fundamental" | "flow";
 }
 
 function timeAgo(date: Date): string {
@@ -17,11 +22,37 @@ function timeAgo(date: Date): string {
   return `${hours}h ${minutes % 60}m ago`;
 }
 
-export function PageHeader({ title, loadedAt, loading, onRefresh }: PageHeaderProps) {
+function getFreshnessLabel(freshness: DataFreshness, dataType: string): { label: string; date: string | null } {
+  switch (dataType) {
+    case "fundamental":
+      return {
+        label: "Fundamentals as of",
+        date: freshness.last_fundamental_ingest
+          ? freshness.last_fundamental_ingest.split(" ")[0]
+          : null,
+      };
+    case "flow":
+      return { label: "Flows as of", date: freshness.last_flow_date };
+    case "market":
+    default:
+      return { label: "Market data", date: freshness.last_trading_day };
+  }
+}
+
+export function PageHeader({ title, loadedAt, loading, onRefresh, dataType = "market" }: PageHeaderProps) {
+  const freshness = useDataFreshness();
+  const freshnessInfo = freshness ? getFreshnessLabel(freshness, dataType) : null;
+
   return (
     <div className="flex items-center justify-between mb-4">
       <h1 className="text-xs font-bold text-accent uppercase tracking-wider">{title}</h1>
       <div className="flex items-center gap-3 text-[10px] text-muted">
+        {freshnessInfo?.date && (
+          <span className="border border-border/50 rounded px-1.5 py-0.5">
+            {freshnessInfo.label}{" "}
+            <span className="text-foreground font-mono">{freshnessInfo.date}</span>
+          </span>
+        )}
         {loadedAt && (
           <span title={loadedAt.toLocaleString()}>
             Loaded {timeAgo(loadedAt)}

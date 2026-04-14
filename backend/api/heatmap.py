@@ -52,6 +52,7 @@ def heatmap_data(index: str):
                        ) AS src_rn
                 FROM price_history ph
                 WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
+                  AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
             ),
             ranked AS (
                 SELECT instrument_id, trade_date, close,

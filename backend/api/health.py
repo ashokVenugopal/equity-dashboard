@@ -1,4 +1,4 @@
-"""Health check endpoint with DB stats."""
+"""Health check and data freshness endpoints."""
 import logging
 import time
 
@@ -9,6 +9,51 @@ from backend.core.connection import get_observations_connection, get_pipeline_co
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["health"])
+
+
+@router.get("/api/data-freshness")
+def data_freshness():
+    """
+    Returns timestamps for the most recent valid data across market and fundamental sources.
+    Used by the frontend to show data staleness warnings.
+    """
+    logger.info("GET /api/data-freshness")
+    t0 = time.time()
+    conn = get_pipeline_connection()
+    try:
+        row = conn.execute("""
+            SELECT
+                (SELECT MAX(trade_date) FROM market_breadth
+                 WHERE (advances + declines) > 0) AS last_trading_day,
+                (SELECT MAX(trade_date) FROM price_history
+                 WHERE source IN ('nse_bhavcopy', 'bse_bhavcopy')) AS last_price_ingest,
+                (SELECT MAX(trade_date) FROM price_history
+                 WHERE source = 'nse_index') AS last_index_price,
+                (SELECT MAX(ingested_at) FROM sources
+                 WHERE file_type IN ('screener_excel', 'screener_web')) AS last_fundamental_ingest,
+                (SELECT MAX(flow_date) FROM institutional_flows
+                 WHERE period_type = 'daily') AS last_flow_date
+        """).fetchone()
+
+        result = {
+            "last_trading_day": row["last_trading_day"],
+            "last_price_ingest": row["last_price_ingest"],
+            "last_index_price": row["last_index_price"],
+            "last_fundamental_ingest": row["last_fundamental_ingest"],
+            "last_flow_date": row["last_flow_date"],
+        }
+        elapsed = time.time() - t0
+        logger.info("GET /api/data-freshness — %.3fs", elapsed)
+        return result
+    except Exception as e:
+        logger.error("GET /api/data-freshness — failed: %s", e)
+        return {
+            "last_trading_day": None, "last_price_ingest": None,
+            "last_index_price": None, "last_fundamental_ingest": None,
+            "last_flow_date": None,
+        }
+    finally:
+        conn.close()
 
 
 @router.get("/api/health")

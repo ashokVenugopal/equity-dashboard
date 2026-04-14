@@ -149,7 +149,7 @@ class TestIndexDetailTableViews:
         assert len(symbols) == len(set(symbols))
 
     def test_all_views_idempotent(self, test_client):
-        views = ["overview", "shareholding", "relative", "technicals",
+        views = ["this_view", "overview", "shareholding", "relative", "technicals",
                  "support_resistance", "fundamentals", "price_volume"]
         for view in views:
             r1 = test_client.get(f"/api/index-detail/nifty-50/table?view={view}").json()

@@ -125,6 +125,7 @@ export default function ScreenerPage() {
         loadedAt={ranAt}
         loading={loading}
         onRefresh={results.length > 0 ? handleExecute : undefined}
+        dataType="fundamental"
       />
 
       <div className="relative">

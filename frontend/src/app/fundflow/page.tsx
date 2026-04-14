@@ -4,6 +4,7 @@ import { useState, useCallback } from "react";
 import { getFundFlowSummary, getFundFlowDaily, getFundFlowMonthly } from "@/lib/api";
 import { DataTable } from "@/components/tables/DataTable";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { FlowBarChart, type FlowBarData } from "@/components/charts/FlowBarChart";
 import { useCachedData } from "@/lib/cache";
 
 export default function FundFlowPage() {
@@ -27,10 +28,18 @@ export default function FundFlowPage() {
         loadedAt={summary.loadedAt}
         loading={summary.loading || activeData.loading}
         onRefresh={() => { summary.refresh(); activeData.refresh(); }}
+        dataType="flow"
       />
 
       {/* Summary Cards */}
       {summary.data && <SummaryCards data={summary.data} />}
+
+      {/* FII / DII Bar Chart */}
+      {activeData.data && (
+        <FlowBarChart
+          data={toFlowBarData(activeData.data.flows)}
+        />
+      )}
 
       {/* Segment selector + Tab toggle */}
       <div className="flex items-center justify-between">
@@ -78,6 +87,14 @@ export default function FundFlowPage() {
       )}
     </div>
   );
+}
+
+function toFlowBarData(flows: Record<string, unknown>[]): FlowBarData[] {
+  return [...flows].reverse().map((row) => ({
+    time: String(row.flow_date),
+    fii_net: row.fii_net as number | null,
+    dii_net: row.dii_net as number | null,
+  }));
 }
 
 const DAILY_COLUMNS = [

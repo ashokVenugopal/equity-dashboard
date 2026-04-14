@@ -3,6 +3,7 @@
 import { useState, useCallback } from "react";
 import { getFundFlowDetailed } from "@/lib/api";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { FlowBarChart, type FlowBarData } from "@/components/charts/FlowBarChart";
 import { useCachedData } from "@/lib/cache";
 
 const TIMEFRAMES = [
@@ -101,7 +102,7 @@ export default function FundFlowDetailPage() {
 
   return (
     <div className="space-y-4">
-      <PageHeader title="FII & DII Trading Activity" loadedAt={loadedAt} loading={loading} onRefresh={refresh} />
+      <PageHeader title="FII & DII Trading Activity" loadedAt={loadedAt} loading={loading} onRefresh={refresh} dataType="flow" />
 
       {/* Timeframe tabs */}
       <div className="flex justify-center gap-2">
@@ -156,6 +157,13 @@ export default function FundFlowDetailPage() {
         </div>
       )}
 
+      {/* FII / DII Bar Chart */}
+      {data && data.rows.length > 0 && (
+        <FlowBarChart
+          data={detailToFlowBarData(data.rows, view)}
+        />
+      )}
+
       {/* Color-coded table */}
       {data ? (
         <div className="overflow-x-auto">
@@ -204,6 +212,25 @@ export default function FundFlowDetailPage() {
       ) : null}
     </div>
   );
+}
+
+// Map view → which columns represent FII net and DII/MF net for the bar chart
+const VIEW_NET_KEYS: Record<string, { fii: string; dii: string }> = {
+  cash_provisional: { fii: "fii_cash_net", dii: "dii_cash_net" },
+  summary: { fii: "fii_equity_net", dii: "mf_equity_net" },
+  fii_cash: { fii: "fii_equity_net", dii: "fii_debt_net" },
+  fii_fo: { fii: "fii_index_futures_net", dii: "fii_index_options_net" },
+  mf_cash: { fii: "dii_equity_net", dii: "dii_debt_net" },
+  mf_fo: { fii: "dii_index_futures_net", dii: "dii_index_options_net" },
+};
+
+function detailToFlowBarData(rows: Record<string, unknown>[], view: string): FlowBarData[] {
+  const keys = VIEW_NET_KEYS[view] || VIEW_NET_KEYS.cash_provisional;
+  return [...rows].reverse().map((row) => ({
+    time: String(row.flow_date),
+    fii_net: (row[keys.fii] as number | null) ?? null,
+    dii_net: (row[keys.dii] as number | null) ?? null,
+  }));
 }
 
 function formatVal(v: number | null | undefined): string {

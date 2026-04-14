@@ -91,6 +91,7 @@ def index_constituents(name: str):
                        ) AS src_rn
                 FROM price_history ph
                 WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
+                  AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
             ),
             ranked AS (
                 SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn
@@ -159,6 +160,7 @@ def index_movers(name: str, limit: int = Query(5, ge=1, le=20)):
                        ) AS src_rn
                 FROM price_history ph
                 WHERE ph.instrument_id IN (SELECT instrument_id FROM constituents)
+                  AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
             ),
             ranked AS (
                 SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn

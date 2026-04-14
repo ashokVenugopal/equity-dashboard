@@ -54,12 +54,18 @@ _CONCEPT_ALIASES = {
     "current ratio": "current_ratio",
     "quick ratio": "quick_ratio",
     "interest coverage": "interest_coverage",
-    # Growth
-    "sales growth": "sales_growth_headline", "revenue growth": "sales_growth_headline",
-    "profit growth": "profit_growth", "pat growth": "profit_growth", "earnings growth": "profit_growth",
-    "sales growth 3y": "screener_profit_growth_3y",
-    "sales growth 5y": "screener_profit_growth_5y",
-    "sales growth 10y": "screener_profit_growth_10y",
+    # Growth (mapped to screener concepts that have actual data)
+    "sales growth": "screener_sales_growth_3y", "revenue growth": "screener_sales_growth_3y",
+    "sales growth 3y": "screener_sales_growth_3y",
+    "sales growth 5y": "screener_sales_growth_5y",
+    "sales growth 10y": "screener_sales_growth_10y",
+    "sales growth ttm": "screener_sales_growth_ttm",
+    "profit growth": "screener_profit_growth_3y", "pat growth": "screener_profit_growth_3y",
+    "earnings growth": "screener_profit_growth_3y",
+    "profit growth 3y": "screener_profit_growth_3y",
+    "profit growth 5y": "screener_profit_growth_5y",
+    "profit growth 10y": "screener_profit_growth_10y",
+    "profit growth ttm": "screener_profit_growth_ttm",
     # Balance sheet
     "book value": "book_value",
     "total assets": "total_assets",
@@ -74,10 +80,23 @@ _CONCEPT_ALIASES = {
     "fii holding": "sh_fiis", "fii": "sh_fiis",
     "dii holding": "sh_diis", "dii": "sh_diis",
     "public holding": "sh_public", "public": "sh_public",
-    # Turnover
+    # Turnover & efficiency
     "debtor days": "debtor_days",
     "inventory turnover": "inventory_turnover",
     "asset turnover": "asset_turnover",
+    "fixed asset turnover": "fixed_asset_turnover", "fat": "fixed_asset_turnover",
+    # Enterprise value
+    "ev": "enterprise_value", "enterprise value": "enterprise_value",
+    "ev/ebitda": "ev_ebitda", "ev ebitda": "ev_ebitda",
+    # Cash flow ratios
+    "price to fcf": "price_to_fcf", "p/fcf": "price_to_fcf",
+    "fcf to sales": "fcf_to_sales", "fcf margin": "fcf_to_sales",
+    # DuPont & payout
+    "equity multiplier": "equity_multiplier",
+    "dividend payout": "dividend_payout", "payout ratio": "dividend_payout",
+    "adjusted eps": "adjusted_eps_ratio",
+    # Margins
+    "gross margin": "gross_margin",
 }
 
 # ── Filter condition regex ──

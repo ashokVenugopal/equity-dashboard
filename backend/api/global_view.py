@@ -38,6 +38,7 @@ def global_overview():
                 WHERE ph.instrument_id IN (
                     SELECT instrument_id FROM instruments WHERE instrument_type != 'stock' AND is_active = 1
                 )
+                  AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
             )
             SELECT i.instrument_type, i.symbol, i.name, i.currency,
                    lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume
@@ -114,6 +115,7 @@ def _get_by_type(instrument_type: str):
                 WHERE ph.instrument_id IN (
                     SELECT instrument_id FROM instruments WHERE instrument_type = ? AND is_active = 1
                 )
+                  AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
             )
             SELECT i.symbol, i.name, i.currency,
                    lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume

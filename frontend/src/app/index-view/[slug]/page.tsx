@@ -1,16 +1,20 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { getIndexDetailOverview, getIndexDetailTable, getInstrumentPriceHistory } from "@/lib/api";
+import { getIndexDetailOverview, getIndexDetailTable, getIndexDetailStats, getInstrumentPriceHistory } from "@/lib/api";
+import type { IndexStats } from "@/lib/api";
 import { DataTable } from "@/components/tables/DataTable";
+import { ThisViewTable } from "@/components/index/ThisViewTable";
 import { PriceChart } from "@/components/charts/PriceChart";
+import { PerformanceCards } from "@/components/index/PerformanceCards";
+import { TechnicalPanels } from "@/components/index/TechnicalPanels";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useCachedData } from "@/lib/cache";
 import { useParams } from "next/navigation";
 import { formatChange, formatChangePct } from "@/lib/formatters";
 
 const VIEWS = [
-  { key: "overview", label: "This View" },
+  { key: "this_view", label: "This View" },
   { key: "technicals", label: "Technicals" },
   { key: "support_resistance", label: "S&R" },
   { key: "price_volume", label: "Price & Volume" },
@@ -22,13 +26,7 @@ const VIEWS = [
 type ViewKey = typeof VIEWS[number]["key"];
 
 const VIEW_COLUMNS: Record<ViewKey, { key: string; label: string; align?: "left" | "right" }[]> = {
-  overview: [
-    { key: "symbol", label: "Symbol" },
-    { key: "name", label: "Company" },
-    { key: "close", label: "LTP", align: "right" },
-    { key: "change_pct", label: "Chg %", align: "right" },
-    { key: "volume", label: "Volume", align: "right" },
-  ],
+  this_view: [], // Uses custom ThisViewTable component
   technicals: [
     { key: "symbol", label: "Symbol" },
     { key: "name", label: "Company" },
@@ -103,7 +101,7 @@ const VIEW_COLUMNS: Record<ViewKey, { key: string; label: string; align?: "left"
 export default function IndexViewPage() {
   const params = useParams();
   const slug = params.slug as string;
-  const [view, setView] = useState<ViewKey>("overview");
+  const [view, setView] = useState<ViewKey>("this_view");
 
   // Overview data (cached)
   const overviewFetcher = useCallback(() => getIndexDetailOverview(slug), [slug]);
@@ -126,6 +124,11 @@ export default function IndexViewPage() {
     return getInstrumentPriceHistory(instrumentSymbol, { limit: 180 });
   }, [instrumentSymbol]);
   const chart = useCachedData(`idx-${slug}-chart-${instrumentSymbol}`, chartFetcher, 10 * 60 * 1000);
+
+  // Index stats (performance cards, technicals, S&R)
+  const statsFetcher = useCallback(() => getIndexDetailStats(slug), [slug]);
+  const stats = useCachedData(`idx-${slug}-stats`, statsFetcher, 5 * 60 * 1000);
+  const statsData = stats.data as IndexStats | null;
 
   return (
     <div className="space-y-6">
@@ -163,6 +166,20 @@ export default function IndexViewPage() {
         <PriceChart data={chart.data.prices} height={250} />
       )}
 
+      {/* Performance cards with distribution bars */}
+      {statsData?.performance && statsData.performance.length > 0 && (
+        <PerformanceCards items={statsData.performance} />
+      )}
+
+      {/* Technical indicators + S&R panels */}
+      {statsData && (
+        <TechnicalPanels
+          technicals={statsData.technicals}
+          supportResistance={statsData.support_resistance}
+          currentPrice={price?.close}
+        />
+      )}
+
       {/* View tabs */}
       <div className="flex gap-4 border-b border-border pb-2">
         {VIEWS.map((v) => (
@@ -182,7 +199,11 @@ export default function IndexViewPage() {
 
       {/* Table */}
       {table.data ? (
-        <DataTable columns={VIEW_COLUMNS[view]} rows={table.data.rows} />
+        view === "this_view" ? (
+          <ThisViewTable rows={table.data.rows as never} />
+        ) : (
+          <DataTable columns={VIEW_COLUMNS[view]} rows={table.data.rows} />
+        )
       ) : table.loading ? (
         <div className="text-muted text-xs text-center py-8">Loading {view}...</div>
       ) : table.error ? (

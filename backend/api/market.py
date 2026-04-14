@@ -179,6 +179,7 @@ def market_global():
                 WHERE ph.instrument_id IN (
                     SELECT instrument_id FROM instruments WHERE instrument_type != 'stock' AND is_active = 1
                 )
+                  AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
             )
             SELECT i.instrument_type, i.symbol, i.name, i.currency,
                    lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume
@@ -229,6 +230,7 @@ def _get_index_cards(conn):
                 SELECT instrument_id FROM instruments
                 WHERE instrument_type = 'index' AND exchange = 'NSE' AND is_active = 1
             )
+              AND ph.trade_date IN (SELECT DISTINCT trade_date FROM market_breadth WHERE (advances + declines) > 0 ORDER BY trade_date DESC LIMIT 10)
         ),
         ranked AS (
             SELECT *, ROW_NUMBER() OVER (PARTITION BY instrument_id ORDER BY trade_date DESC) AS rn

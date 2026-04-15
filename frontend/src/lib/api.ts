@@ -366,6 +366,7 @@ export interface IndexStats {
   performance: IndexPerformanceItem[];
   technicals: Record<string, number | null>;
   support_resistance: Record<string, number | null>;
+  price_ranges?: Record<string, number | null>;
 }
 
 export function getIndexDetailStats(slug: string): Promise<IndexStats> {

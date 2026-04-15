@@ -142,6 +142,7 @@ def market_breadth(limit: int = Query(10, ge=1, le=60)):
                    advance_decline_ratio, new_52w_highs, new_52w_lows,
                    total_traded, avg_delivery_pct
             FROM market_breadth
+            WHERE (advances + declines) > 0
             ORDER BY trade_date DESC
             LIMIT ?
         """, (limit,)).fetchall()
@@ -291,6 +292,7 @@ def _get_latest_breadth(conn):
         SELECT trade_date, advances, declines, unchanged,
                advance_decline_ratio, new_52w_highs, new_52w_lows
         FROM market_breadth
+        WHERE (advances + declines) > 0
         ORDER BY trade_date DESC
         LIMIT 1
     """).fetchone()

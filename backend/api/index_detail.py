@@ -33,7 +33,7 @@ def index_overview(slug: str):
             SELECT instrument_id, symbol, name
             FROM instruments
             WHERE instrument_type = 'index' AND is_active = 1
-              AND (symbol = ? OR name = ?)
+              AND (symbol = ? OR UPPER(name) = UPPER(?))
             LIMIT 1
         """, (index_name, index_name)).fetchone()
 
@@ -117,7 +117,7 @@ def index_stats(slug: str):
             SELECT instrument_id, symbol, name
             FROM instruments
             WHERE instrument_type = 'index' AND is_active = 1
-              AND (symbol = ? OR name = ?)
+              AND (symbol = ? OR UPPER(name) = UPPER(?))
             LIMIT 1
         """, (index_name, index_name)).fetchone()
 
@@ -292,6 +292,44 @@ def index_stats(slug: str):
                     "s3": round(l - 2 * (h - pivot), 2),
                 }
 
+        # ── Price ranges (week/month/year OHLC for the index) ──
+        price_ranges = {}
+        if idx_inst:
+            range_row = conn.execute("""
+                WITH best_per_date AS (
+                    SELECT trade_date, open, high, low, close,
+                           ROW_NUMBER() OVER (PARTITION BY trade_date
+                               ORDER BY CASE source WHEN 'nse_index' THEN 1 ELSE 2 END
+                           ) AS src_rn
+                    FROM price_history WHERE instrument_id = ?
+                ),
+                clean AS (SELECT * FROM best_per_date WHERE src_rn = 1),
+                latest AS (SELECT * FROM clean ORDER BY trade_date DESC LIMIT 1)
+                SELECT
+                    -- High / Low for each period
+                    (SELECT MAX(c.high) FROM clean c WHERE c.trade_date >= date(l.trade_date, '-7 days')) AS week_high,
+                    (SELECT MIN(c.low) FROM clean c WHERE c.trade_date >= date(l.trade_date, '-7 days')) AS week_low,
+                    (SELECT MAX(c.high) FROM clean c WHERE c.trade_date >= date(l.trade_date, '-30 days')) AS month_high,
+                    (SELECT MIN(c.low) FROM clean c WHERE c.trade_date >= date(l.trade_date, '-30 days')) AS month_low,
+                    (SELECT MAX(c.high) FROM clean c WHERE c.trade_date >= date(l.trade_date, 'start of month')) AS this_month_high,
+                    (SELECT MIN(c.low) FROM clean c WHERE c.trade_date >= date(l.trade_date, 'start of month')) AS this_month_low,
+                    (SELECT MAX(c.high) FROM clean c WHERE c.trade_date >= date(l.trade_date, '-365 days')) AS year_high,
+                    (SELECT MIN(c.low) FROM clean c WHERE c.trade_date >= date(l.trade_date, '-365 days')) AS year_low,
+                    (SELECT MAX(c.high) FROM clean c WHERE c.trade_date >= date(l.trade_date, 'start of year')) AS ytd_high,
+                    (SELECT MIN(c.low) FROM clean c WHERE c.trade_date >= date(l.trade_date, 'start of year')) AS ytd_low,
+                    -- Period open prices (first trading day's open of each period)
+                    (SELECT c.open FROM clean c WHERE c.trade_date >= date(l.trade_date, '-7 days') ORDER BY c.trade_date ASC LIMIT 1) AS week_open,
+                    (SELECT c.open FROM clean c WHERE c.trade_date >= date(l.trade_date, '-30 days') ORDER BY c.trade_date ASC LIMIT 1) AS month_open,
+                    (SELECT c.open FROM clean c WHERE c.trade_date >= date(l.trade_date, 'start of month') ORDER BY c.trade_date ASC LIMIT 1) AS this_month_open,
+                    (SELECT c.open FROM clean c WHERE c.trade_date >= date(l.trade_date, '-365 days') ORDER BY c.trade_date ASC LIMIT 1) AS year_open,
+                    (SELECT c.open FROM clean c WHERE c.trade_date >= date(l.trade_date, 'start of year') ORDER BY c.trade_date ASC LIMIT 1) AS ytd_open,
+                    -- Latest day OHLC
+                    l.open AS prev_open, l.high AS prev_high, l.low AS prev_low, l.close AS prev_close
+                FROM latest l
+            """, (idx_inst["instrument_id"],)).fetchone()
+            if range_row:
+                price_ranges = {k: range_row[k] for k in range_row.keys()}
+
         elapsed = time.time() - t0
         perf_count = sum(1 for p in performance if p.get("change_pct") is not None)
         tech_count = len(technicals)
@@ -308,6 +346,7 @@ def index_stats(slug: str):
             "index_name": index_name,
             "performance": performance,
             "technicals": technicals,
+            "price_ranges": price_ranges,
             "support_resistance": support_resistance,
         }
     except Exception as e:

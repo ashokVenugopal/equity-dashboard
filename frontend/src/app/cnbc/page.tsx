@@ -180,12 +180,12 @@ function CashFlowsSection({ summary, daily }: { summary: Record<string, unknown>
         <span className={`font-bold ${cls(netInstl)}`}>{fmtCr(netInstl)}</span>
       </div>
 
-      {/* Period summaries with net */}
-      <div className="grid grid-cols-3 gap-3 mb-4 text-xs font-mono">
-        <PeriodFlowCard label="Latest" fii={fiiNet} dii={diiNet} />
-        <PeriodFlowCard label="MTD" fii={fiiMtd} dii={diiMtd} />
-        <PeriodFlowCard label="YTD" fii={fiiYtd} dii={diiYtd} />
-      </div>
+      {/* Period flow activity bars — FII/DII per period with net */}
+      <FlowPeriodBars periods={[
+        { label: "Latest", fii: fiiNet, dii: diiNet },
+        { label: "MTD", fii: fiiMtd, dii: diiMtd },
+        { label: "YTD", fii: fiiYtd, dii: diiYtd },
+      ]} />
 
       {barData.length > 0 && <FlowBarChart data={barData} height={180} />}
     </section>
@@ -213,25 +213,61 @@ function ActivityBar({ label, value, maxAbs }: { label: string; value: number | 
   );
 }
 
-function PeriodFlowCard({ label, fii, dii }: { label: string; fii: number | null; dii: number | null }) {
-  const net = fii != null && dii != null ? fii + dii : null;
+function FlowPeriodBars({ periods }: { periods: { label: string; fii: number | null; dii: number | null }[] }) {
+  const allAbs = periods.flatMap((p) => [Math.abs(p.fii || 0), Math.abs(p.dii || 0)]);
+  const maxAbs = Math.max(...allAbs, 1);
+
   return (
-    <div className="border border-border/50 rounded p-2">
-      <div className="text-[9px] text-muted uppercase mb-1">{label}</div>
-      <div className="flex justify-between gap-2">
-        <div>
-          <div className="text-[8px] text-muted">FII</div>
-          <div className={`text-xs font-bold ${cls(fii)}`}>{fmtCr(fii)}</div>
-        </div>
-        <div>
-          <div className="text-[8px] text-muted">DII</div>
-          <div className={`text-xs font-bold ${cls(dii)}`}>{fmtCr(dii)}</div>
-        </div>
-        <div>
-          <div className="text-[8px] text-muted">Net</div>
-          <div className={`text-xs font-bold ${cls(net)}`}>{fmtCr(net)}</div>
-        </div>
-      </div>
+    <div className="grid grid-cols-3 gap-3 mb-4">
+      {periods.map((p) => {
+        const net = p.fii != null && p.dii != null ? p.fii + p.dii : null;
+        const fiiPct = Math.min(Math.abs(p.fii || 0) / maxAbs * 85, 85);
+        const diiPct = Math.min(Math.abs(p.dii || 0) / maxAbs * 85, 85);
+        const barH = 80;
+
+        return (
+          <div key={p.label} className="border border-border/30 rounded p-2">
+            <div className="text-[9px] text-muted uppercase tracking-wider font-medium mb-2">{p.label}</div>
+            {/* Vertical bars */}
+            <div className="flex items-end justify-center gap-3" style={{ height: `${barH}px` }}>
+              {/* FII bar */}
+              <div className="flex flex-col items-center w-12">
+                <span className={`text-[10px] font-mono font-bold mb-1 ${cls(p.fii)}`}>
+                  {p.fii != null ? `${p.fii >= 0 ? "+" : ""}${(p.fii / 1000).toFixed(0)}K` : "—"}
+                </span>
+                <div className="w-full bg-border/20 rounded-t overflow-hidden" style={{ height: `${barH}px` }}>
+                  <div className="w-full absolute bottom-0" style={{ position: "relative" }}>
+                    <div
+                      className={`w-full rounded-t ${(p.fii ?? 0) >= 0 ? "bg-[#2196F3]" : "bg-negative"}`}
+                      style={{ height: `${fiiPct * barH / 100}px`, marginTop: `${barH - fiiPct * barH / 100}px` }}
+                    />
+                  </div>
+                </div>
+                <span className="text-[8px] text-muted mt-0.5">FII</span>
+              </div>
+              {/* DII bar */}
+              <div className="flex flex-col items-center w-12">
+                <span className={`text-[10px] font-mono font-bold mb-1 ${cls(p.dii)}`}>
+                  {p.dii != null ? `${p.dii >= 0 ? "+" : ""}${(p.dii / 1000).toFixed(0)}K` : "—"}
+                </span>
+                <div className="w-full bg-border/20 rounded-t overflow-hidden" style={{ height: `${barH}px` }}>
+                  <div style={{ position: "relative" }}>
+                    <div
+                      className={`w-full rounded-t ${(p.dii ?? 0) >= 0 ? "bg-[#2196F3]" : "bg-negative"}`}
+                      style={{ height: `${diiPct * barH / 100}px`, marginTop: `${barH - diiPct * barH / 100}px` }}
+                    />
+                  </div>
+                </div>
+                <span className="text-[8px] text-muted mt-0.5">DII</span>
+              </div>
+            </div>
+            {/* Net */}
+            <div className={`text-[10px] font-mono font-bold text-center mt-1.5 ${cls(net)}`}>
+              Net: {net != null ? `${net >= 0 ? "+" : ""}${fmt(net, 0)} Cr` : "—"}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -270,3 +270,114 @@ class TestThisViewSensitivity:
         for row in data["rows"]:
             dates = [p["t"] for p in row["sparkline"]]
             assert dates == sorted(dates)
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 9. STATS — PRICE RANGES (period opens for candlestick chart)
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestIndexStatsPriceRanges:
+    def test_price_ranges_returned(self, test_client):
+        """Stats response includes price_ranges dict."""
+        data = test_client.get("/api/index-detail/nifty-50/stats").json()
+        assert "price_ranges" in data
+        assert isinstance(data["price_ranges"], dict)
+
+    def test_price_ranges_has_high_low_fields(self, test_client):
+        """price_ranges includes high/low for all periods."""
+        pr = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        for period in ["week", "month", "this_month", "year", "ytd"]:
+            assert f"{period}_high" in pr
+            assert f"{period}_low" in pr
+
+    def test_price_ranges_has_period_opens(self, test_client):
+        """price_ranges includes open prices for each period (for candlestick bodies)."""
+        pr = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        for period in ["week", "month", "this_month", "year", "ytd"]:
+            assert f"{period}_open" in pr
+
+    def test_price_ranges_has_prev_ohlc(self, test_client):
+        """price_ranges includes previous day OHLC."""
+        pr = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        assert "prev_open" in pr
+        assert "prev_high" in pr
+        assert "prev_low" in pr
+        assert "prev_close" in pr
+
+    def test_high_gte_low_all_periods(self, test_client):
+        """High should always be >= Low for every period."""
+        pr = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        for period in ["week", "month", "this_month", "year", "ytd"]:
+            h = pr.get(f"{period}_high")
+            l = pr.get(f"{period}_low")
+            if h is not None and l is not None:
+                assert h >= l, f"{period}: high {h} < low {l}"
+
+    def test_week_open_is_earliest_in_window(self, test_client):
+        """week_open should come from the earliest date in the 7-day window.
+        Fixtures have prices for 2026-04-09 (open=22100) and 2026-04-10 (open=22300).
+        week_open should be the earlier date's open."""
+        pr = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        if pr.get("week_open") is not None:
+            # With 2 days of fixture data, week_open = Apr 9 open = 22100
+            assert pr["week_open"] == 22100.0
+
+    def test_nonexistent_index_empty_ranges(self, test_client):
+        """Unknown index returns empty price_ranges."""
+        data = test_client.get("/api/index-detail/nonexistent-xyz/stats").json()
+        assert data["price_ranges"] == {}
+
+    def test_price_ranges_idempotent(self, test_client):
+        r1 = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        r2 = test_client.get("/api/index-detail/nifty-50/stats").json()["price_ranges"]
+        assert r1 == r2
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 10. CASE-INSENSITIVE INDEX NAME LOOKUP
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestCaseInsensitiveLookup:
+    def test_overview_works_for_bank_nifty(self, test_client):
+        """nifty-bank slug resolves despite instrument name being 'NIFTY Bank' (mixed case)."""
+        resp = test_client.get("/api/index-detail/nifty-bank/overview")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["index_name"] == "NIFTY BANK"
+
+    def test_stats_works_for_bank_nifty(self, test_client):
+        """Stats endpoint also resolves nifty-bank via case-insensitive lookup."""
+        resp = test_client.get("/api/index-detail/nifty-bank/stats")
+        assert resp.status_code == 200
+
+    def test_overview_nifty50_still_works(self, test_client):
+        """Existing nifty-50 lookup not broken by case-insensitive change."""
+        resp = test_client.get("/api/index-detail/nifty-50/overview")
+        assert resp.status_code == 200
+        assert resp.json()["index_name"] == "NIFTY 50"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# 11. BREADTH TRADING DAY FILTER
+# ═══════════════════════════════════════════════════════════════════════
+
+class TestBreadthTradingDayFilter:
+    def test_breadth_excludes_zero_sum_days(self, test_client):
+        """Market breadth endpoint should only return days where advances+declines > 0."""
+        resp = test_client.get("/api/market/breadth?limit=10")
+        data = resp.json()
+        for row in data["breadth"]:
+            assert (row["advances"] + row["declines"]) > 0, \
+                f"Non-trading day {row['trade_date']} with 0 advances+declines should be filtered"
+
+    def test_breadth_returns_real_trading_days(self, test_client):
+        """Fixture has breadth for 2026-04-10 (1200+800) and 2026-04-09 (900+1100)."""
+        resp = test_client.get("/api/market/breadth?limit=2")
+        dates = [r["trade_date"] for r in resp.json()["breadth"]]
+        assert "2026-04-10" in dates
+        assert "2026-04-09" in dates
+
+    def test_breadth_idempotent(self, test_client):
+        r1 = test_client.get("/api/market/breadth?limit=5").json()
+        r2 = test_client.get("/api/market/breadth?limit=5").json()
+        assert r1 == r2

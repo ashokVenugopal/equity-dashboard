@@ -208,12 +208,12 @@ def filter_companies(body: FilterRequest):
                 "elapsed_ms": round(elapsed * 1000, 1),
             }
 
-        # Build SQL: for each condition, get latest annual best_fact and filter
+        # Build SQL: for each condition, get latest annual best_fact and filter.
+        # Prefers consolidated, falls back to standalone for companies without consolidated data.
         cte_parts = []
         where_parts = []
         for i, cond in enumerate(conditions):
             alias = f"c{i}"
-            # Query facts directly (avoids slow best_facts_consolidated view)
             cte_parts.append(f"""
                 {alias} AS (
                     SELECT f.company_id, f.value AS {alias}_val
@@ -222,7 +222,7 @@ def filter_companies(body: FilterRequest):
                     JOIN concepts co ON f.concept_id = co.concept_id
                     WHERE co.concept_code = '{cond["concept_code"]}'
                       AND s.period_type IN ('annual', 'snapshot')
-                      AND s.statement_type = 'consolidated'
+                      AND s.statement_type IN ('consolidated', 'standalone')
                       AND f.fact_id = (
                           SELECT f2.fact_id FROM facts f2
                           JOIN sources s2 ON f2.source_id = s2.source_id
@@ -230,8 +230,10 @@ def filter_companies(body: FilterRequest):
                           WHERE co2.concept_code = '{cond["concept_code"]}'
                             AND f2.company_id = f.company_id
                             AND s2.period_type IN ('annual', 'snapshot')
-                            AND s2.statement_type = 'consolidated'
-                          ORDER BY f2.period_end_date DESC,
+                            AND s2.statement_type IN ('consolidated', 'standalone')
+                          ORDER BY
+                              CASE s2.statement_type WHEN 'consolidated' THEN 1 WHEN 'standalone' THEN 2 ELSE 3 END,
+                              f2.period_end_date DESC,
                               CASE s2.derivation WHEN 'original' THEN 1 WHEN 'aggregated' THEN 2 ELSE 3 END,
                               CASE s2.file_type WHEN 'screener_excel' THEN 1 WHEN 'screener_web' THEN 2 ELSE 3 END,
                               f2.created_at DESC

@@ -472,9 +472,19 @@ def _seed_sample_data(conn):
     conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange)
                     VALUES (2, '2026-04-10', 48200.0, 48700.0, 48100.0, 48600.0, 55000, 'nse_index', 'NSE')""")
 
-    # Price history — global instruments
+    # Price history — global instruments (BRENT id=5, USDINR id=6)
+    # BRENT: latest + 1W/1M/1Y reference points so change_pct_1w/1m/1y are non-null
+    # latest=72.80; 1W ago (>=7d before 2026-04-10, weekday) = 70.00 → +4.00%
+    # 1M ago (>=30d) = 68.00 → +7.06%; 1Y ago (>=365d) = 60.00 → +21.33%
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source)
+                    VALUES (5, '2025-04-10', 59.00, 60.10, 58.90, 60.00, 0, 'yahoo_finance')""")  # ~1Y
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source)
+                    VALUES (5, '2026-03-10', 67.50, 68.20, 67.10, 68.00, 0, 'yahoo_finance')""")  # ~1M
+    conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source)
+                    VALUES (5, '2026-04-02', 69.50, 70.10, 69.30, 70.00, 0, 'yahoo_finance')""")  # ~1W
     conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source)
                     VALUES (5, '2026-04-10', 72.50, 73.20, 72.10, 72.80, 0, 'yahoo_finance')""")
+    # USDINR: only latest — change_pct_1w/1m/1y remain null (no history)
     conn.execute("""INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source)
                     VALUES (6, '2026-04-10', 85.10, 85.30, 84.90, 85.20, 0, 'yahoo_finance')""")
 

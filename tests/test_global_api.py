@@ -76,3 +76,49 @@ def test_global_all_idempotent(test_client):
         r1 = test_client.get(endpoint).json()
         r2 = test_client.get(endpoint).json()
         assert r1 == r2, f"{endpoint} not idempotent"
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# Historical change % (1W / 1M / 1Y)
+# ═══════════════════════════════════════════════════════════════════════
+
+def test_global_overview_includes_change_pct_fields(test_client):
+    """Every instrument in overview exposes change_pct_1w/1m/1y keys (value may be null)."""
+    resp = test_client.get("/api/global/overview")
+    for instruments in resp.json()["groups"].values():
+        for inst in instruments:
+            assert "change_pct_1w" in inst
+            assert "change_pct_1m" in inst
+            assert "change_pct_1y" in inst
+
+
+def test_global_overview_change_pct_computed_from_fixture(test_client):
+    """BRENTUSD fixture has history at 1W/1M/1Y — pct values should match hand-computed values."""
+    resp = test_client.get("/api/global/overview")
+    brent = next(i for i in resp.json()["groups"]["commodity"] if i["symbol"] == "BRENTUSD")
+    # latest=72.80; 1W ref=70.00 → (72.80-70.00)/70.00*100 = 4.0
+    assert brent["change_pct_1w"] == pytest.approx(4.0, abs=0.01)
+    # 1M ref=68.00 → (72.80-68.00)/68.00*100 = 7.058...
+    assert brent["change_pct_1m"] == pytest.approx(7.0588, abs=0.01)
+    # 1Y ref=60.00 → (72.80-60.00)/60.00*100 = 21.333...
+    assert brent["change_pct_1y"] == pytest.approx(21.333, abs=0.01)
+
+
+def test_global_overview_change_pct_null_when_no_history(test_client):
+    """USDINR fixture has only the latest bar — older change_pct fields should be null."""
+    resp = test_client.get("/api/global/overview")
+    usd = next(i for i in resp.json()["groups"]["forex"] if i["symbol"] == "USDINR")
+    assert usd["change_pct_1w"] is None
+    assert usd["change_pct_1m"] is None
+    assert usd["change_pct_1y"] is None
+
+
+def test_global_overview_does_not_leak_internal_fields(test_client):
+    """instrument_id was an internal join key — should not leak into the response."""
+    resp = test_client.get("/api/global/overview")
+    for instruments in resp.json()["groups"].values():
+        for inst in instruments:
+            assert "instrument_id" not in inst
+            assert "close_1w" not in inst
+            assert "close_1m" not in inst
+            assert "close_1y" not in inst

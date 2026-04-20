@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import { searchFilter, apiFetch } from "@/lib/api";
 import { DataTable } from "@/components/tables/DataTable";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -10,6 +10,21 @@ interface ScreenerState {
   results: Record<string, unknown>[];
   columns: { key: string; label: string; align?: "left" | "right" }[];
   info: string;
+  ranAt: string | null;
+}
+
+const SCREENER_STORAGE_KEY = "screener_state_v1";
+
+function loadScreenerState(): Partial<ScreenerState> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(sessionStorage.getItem(SCREENER_STORAGE_KEY) || "{}");
+  } catch { return {}; }
+}
+
+function saveScreenerState(state: Partial<ScreenerState>) {
+  if (typeof window === "undefined") return;
+  try { sessionStorage.setItem(SCREENER_STORAGE_KEY, JSON.stringify(state)); } catch { /* quota or JSON err — ignore */ }
 }
 
 interface ConceptSuggestion {
@@ -33,13 +48,21 @@ function savePinnedScreens(pins: PinnedScreen[]) {
 }
 
 export default function ScreenerPage() {
-  const cached = useCachedScreenerState();
-  const [expression, setExpression] = useState(cached.data?.expression || "");
-  const [results, setResults] = useState<Record<string, unknown>[]>(cached.data?.results || []);
-  const [columns, setColumns] = useState(cached.data?.columns || []);
-  const [info, setInfo] = useState(cached.data?.info || "");
+  const [expression, setExpression] = useState(() => loadScreenerState().expression || "");
+  const [results, setResults] = useState<Record<string, unknown>[]>(() => loadScreenerState().results || []);
+  const [columns, setColumns] = useState(() => loadScreenerState().columns || []);
+  const [info, setInfo] = useState(() => loadScreenerState().info || "");
   const [loading, setLoading] = useState(false);
-  const [ranAt, setRanAt] = useState<Date | null>(cached.data ? new Date() : null);
+  const [ranAt, setRanAt] = useState<Date | null>(() => {
+    const r = loadScreenerState().ranAt;
+    return r ? new Date(r) : null;
+  });
+
+  // Persist expression-in-progress so typing isn't lost on tab switch even before executing
+  useEffect(() => {
+    const current = loadScreenerState();
+    saveScreenerState({ ...current, expression });
+  }, [expression]);
 
   // Pinned screens
   const [pins, setPins] = useState<PinnedScreen[]>(() => getPinnedScreens());
@@ -99,8 +122,9 @@ export default function ScreenerPage() {
       const errors = data.parse_errors.length ? ` | Errors: ${data.parse_errors.join(", ")}` : "";
       const infoStr = `${data.count} result(s) in ${data.elapsed_ms}ms${errors}`;
       setInfo(infoStr);
-      setRanAt(new Date());
-      cached.set({ expression, results: data.results, columns: cols, info: infoStr });
+      const now = new Date();
+      setRanAt(now);
+      saveScreenerState({ expression, results: data.results, columns: cols, info: infoStr, ranAt: now.toISOString() });
     } catch {
       setInfo("Execution failed");
       setResults([]);
@@ -277,17 +301,3 @@ export default function ScreenerPage() {
   );
 }
 
-function useCachedScreenerState() {
-  const [state] = useState<ScreenerState | null>(() => {
-    if (typeof window !== "undefined" && (window as unknown as Record<string, unknown>).__screenerCache) {
-      return (window as unknown as Record<string, unknown>).__screenerCache as ScreenerState;
-    }
-    return null;
-  });
-  const set = useCallback((s: ScreenerState) => {
-    if (typeof window !== "undefined") {
-      (window as unknown as Record<string, unknown>).__screenerCache = s;
-    }
-  }, []);
-  return { data: state, set };
-}

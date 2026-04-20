@@ -414,15 +414,16 @@ function SectorRotationPanel({ performance, niftyStats }: {
   // Get Nifty's 1M return for relative comparison
   const nifty1m = niftyStats.performance.find((p) => p.key === "1m")?.change_pct ?? null;
 
-  const timeframes = ["1w", "4w", "13w"].filter(
-    (tf) => performance.some((r) => r[tf] != null)
-  );
+  // Always render these columns — missing data renders as '—' rather than hiding the column
+  const timeframes = ["1d", "1w", "4w", "13w", "52w"];
+  const tfLabels: Record<string, string> = { "1d": "1D", "1w": "1W", "4w": "1M", "13w": "3M", "26w": "6M", "52w": "1Y" };
+  const showNiftyCompare = nifty1m != null;
 
   return (
     <section className="border border-border rounded bg-surface p-4">
       <div className="flex items-center justify-between mb-3">
         <h2 className="text-[10px] text-muted uppercase tracking-wider font-medium">Sector Rotation — Relative Strength</h2>
-        {nifty1m != null && (
+        {showNiftyCompare && (
           <span className="text-[10px] text-muted font-mono">Nifty 1M: <span className={cls(nifty1m)}>{fmtPct(nifty1m)}</span></span>
         )}
       </div>
@@ -432,8 +433,13 @@ function SectorRotationPanel({ performance, niftyStats }: {
           <thead>
             <tr className="text-[10px] text-muted border-b border-border">
               <th className="text-left py-1">Sector</th>
-              {timeframes.map((tf) => <th key={tf} className="text-right py-1">{tf.replace("w", "W")}</th>)}
-              {nifty1m != null && <th className="text-right py-1">vs Nifty</th>}
+              {timeframes.flatMap((tf) => {
+                const header = <th key={tf} className="text-right py-1">{tfLabels[tf] ?? tf}</th>;
+                if (tf === "4w" && showNiftyCompare) {
+                  return [header, <th key="vs" className="text-right py-1 text-accent/70">vs Nifty 1M</th>];
+                }
+                return [header];
+              })}
             </tr>
           </thead>
           <tbody>
@@ -443,19 +449,23 @@ function SectorRotationPanel({ performance, niftyStats }: {
               return (
                 <tr key={row.classification_name} className="border-b border-border/30 hover:bg-surface-hover">
                   <td className="py-1 pr-4 whitespace-nowrap">{row.classification_name}</td>
-                  {timeframes.map((tf) => {
+                  {timeframes.flatMap((tf) => {
                     const val = row[tf] as number | null;
-                    return (
+                    const cell = (
                       <td key={tf} className={`py-1 text-right tabular-nums ${clsBold(val)}`}>
                         {val != null ? `${val >= 0 ? "+" : ""}${val.toFixed(1)}%` : "—"}
                       </td>
                     );
+                    if (tf === "4w" && showNiftyCompare) {
+                      return [
+                        cell,
+                        <td key="vs" className={`py-1 text-right tabular-nums ${clsBold(relative)}`}>
+                          {relative != null ? `${relative >= 0 ? "+" : ""}${relative.toFixed(1)}%` : "—"}
+                        </td>,
+                      ];
+                    }
+                    return [cell];
                   })}
-                  {nifty1m != null && (
-                    <td className={`py-1 text-right tabular-nums ${clsBold(relative)}`}>
-                      {relative != null ? `${relative >= 0 ? "+" : ""}${relative.toFixed(1)}%` : "—"}
-                    </td>
-                  )}
                 </tr>
               );
             })}

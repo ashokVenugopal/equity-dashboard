@@ -216,13 +216,17 @@ function ActivityBar({ label, value, maxAbs }: { label: string; value: number | 
 function FlowPeriodBars({ periods }: { periods: { label: string; fii: number | null; dii: number | null }[] }) {
   const allAbs = periods.flatMap((p) => [Math.abs(p.fii || 0), Math.abs(p.dii || 0)]);
   const maxAbs = Math.max(...allAbs, 1);
+  // Separate scale for Net bars so users can compare the three Net values directly
+  const nets = periods.map((p) => (p.fii != null && p.dii != null ? p.fii + p.dii : null));
+  const maxAbsNet = Math.max(...nets.map((n) => (n != null ? Math.abs(n) : 0)), 1);
 
   return (
     <div className="grid grid-cols-3 gap-3 mb-4">
-      {periods.map((p) => {
-        const net = p.fii != null && p.dii != null ? p.fii + p.dii : null;
+      {periods.map((p, idx) => {
+        const net = nets[idx];
         const fiiPct = Math.min(Math.abs(p.fii || 0) / maxAbs * 85, 85);
         const diiPct = Math.min(Math.abs(p.dii || 0) / maxAbs * 85, 85);
+        const netPct = net != null ? Math.min(Math.abs(net) / maxAbsNet * 100, 100) : 0;
         const barH = 80;
 
         return (
@@ -261,9 +265,17 @@ function FlowPeriodBars({ periods }: { periods: { label: string; fii: number | n
                 <span className="text-[8px] text-muted mt-0.5">DII</span>
               </div>
             </div>
-            {/* Net */}
-            <div className={`text-[10px] font-mono font-bold text-center mt-1.5 ${cls(net)}`}>
-              Net: {net != null ? `${net >= 0 ? "+" : ""}${fmt(net, 0)} Cr` : "—"}
+            {/* Net: text + shared-scale horizontal bar (so -4K vs -9K vs +5K are visually comparable) */}
+            <div className="mt-1.5 space-y-0.5">
+              <div className={`text-[10px] font-mono font-bold text-center ${cls(net)}`}>
+                Net: {net != null ? `${net >= 0 ? "+" : ""}${fmt(net, 0)} Cr` : "—"}
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-border/30 overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${(net ?? 0) >= 0 ? "bg-[#2196F3]" : "bg-negative"}`}
+                  style={{ width: `${netPct}%` }}
+                />
+              </div>
             </div>
           </div>
         );
@@ -536,18 +548,37 @@ function GlobalCuesSection({ groups }: { groups: Record<string, GlobalInstrument
             <div key={key}>
               <div className="text-[9px] text-muted uppercase tracking-wider mb-1.5 font-medium">{label}</div>
               <table className="w-full text-xs font-mono">
+                <thead>
+                  <tr className="text-[9px] text-muted border-b border-border/40">
+                    <th className="text-left py-0.5 font-normal"></th>
+                    <th className="text-right py-0.5 font-normal">Last</th>
+                    <th className="text-right py-0.5 font-normal w-14">1D</th>
+                    <th className="text-right py-0.5 font-normal w-14">1W</th>
+                    <th className="text-right py-0.5 font-normal w-14">1M</th>
+                    <th className="text-right py-0.5 font-normal w-14">1Y</th>
+                  </tr>
+                </thead>
                 <tbody>
                   {instruments.map((inst) => {
-                    // Compute change% from open if available
-                    const changePct = inst.open && inst.close && inst.open !== 0
+                    // 1D change from open; 1W/1M/1Y change from backend-supplied deltas
+                    const change1d = inst.open && inst.close && inst.open !== 0
                       ? ((inst.close - inst.open) / inst.open * 100)
                       : null;
                     return (
                       <tr key={inst.symbol} className="border-b border-border/20">
                         <td className="py-1 text-muted pr-2 max-w-[140px] truncate" title={inst.name}>{inst.name}</td>
                         <td className="py-1 text-right tabular-nums">{fmt(inst.close)}</td>
-                        <td className={`py-1 text-right tabular-nums w-16 ${cls(changePct)}`}>
-                          {changePct != null ? fmtPct(changePct) : ""}
+                        <td className={`py-1 text-right tabular-nums ${cls(change1d)}`}>
+                          {change1d != null ? fmtPct(change1d) : "—"}
+                        </td>
+                        <td className={`py-1 text-right tabular-nums ${cls(inst.change_pct_1w)}`}>
+                          {inst.change_pct_1w != null ? fmtPct(inst.change_pct_1w) : "—"}
+                        </td>
+                        <td className={`py-1 text-right tabular-nums ${cls(inst.change_pct_1m)}`}>
+                          {inst.change_pct_1m != null ? fmtPct(inst.change_pct_1m) : "—"}
+                        </td>
+                        <td className={`py-1 text-right tabular-nums ${cls(inst.change_pct_1y)}`}>
+                          {inst.change_pct_1y != null ? fmtPct(inst.change_pct_1y) : "—"}
                         </td>
                       </tr>
                     );
@@ -566,11 +597,14 @@ function GlobalCuesSection({ groups }: { groups: Record<string, GlobalInstrument
 // 7. SECTOR PERFORMANCE
 // ═══════════════════════════════════════════════════════════════════════
 
+const SECTOR_TIMEFRAME_LABELS: Record<string, string> = {
+  "1d": "1D", "1w": "1W", "4w": "1M", "13w": "3M", "26w": "6M", "52w": "1Y",
+};
+
 function SectorPerformanceSection({ performance }: { performance: SectorPerformanceRow[] }) {
   if (!performance || performance.length === 0) return null;
-  const timeframes = ["1w", "4w", "13w", "26w", "52w"].filter(
-    (tf) => performance.some((r) => r[tf] != null)
-  );
+  // Always render these columns — missing data renders as '—' rather than hiding the column
+  const timeframes = ["1d", "1w", "4w", "13w", "26w", "52w"];
 
   return (
     <section className="border border-border rounded bg-surface p-4">
@@ -579,7 +613,7 @@ function SectorPerformanceSection({ performance }: { performance: SectorPerforma
         <table className="w-full text-xs font-mono">
           <thead><tr className="text-[10px] text-muted border-b border-border">
             <th className="text-left py-1">Sector</th>
-            {timeframes.map((tf) => <th key={tf} className="text-right py-1">{tf.replace("w", "W")}</th>)}
+            {timeframes.map((tf) => <th key={tf} className="text-right py-1">{SECTOR_TIMEFRAME_LABELS[tf] ?? tf}</th>)}
           </tr></thead>
           <tbody>
             {performance.map((row) => (

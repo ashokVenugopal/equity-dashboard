@@ -18,7 +18,11 @@ router = APIRouter(prefix="/api/global", tags=["global"])
 
 @router.get("/overview")
 def global_overview():
-    """All non-stock instruments grouped by type with latest prices."""
+    """All non-stock instruments grouped by type with latest prices and 1W/1M/1Y change %.
+
+    Historical comparison closes are resolved as the most recent trading-day close
+    on-or-before (latest_date - N calendar days), so they self-adjust to gaps.
+    """
     logger.info("GET /api/global/overview")
     t0 = time.time()
     conn = get_pipeline_connection()
@@ -40,8 +44,23 @@ def global_overview():
                 )
                   AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
             )
-            SELECT i.instrument_type, i.symbol, i.name, i.currency,
-                   lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume
+            SELECT i.instrument_type, i.instrument_id, i.symbol, i.name, i.currency,
+                   lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume,
+                   (SELECT ph.close FROM price_history ph
+                     WHERE ph.instrument_id = i.instrument_id
+                       AND ph.trade_date <= date(lp.trade_date, '-7 days')
+                       AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_1w,
+                   (SELECT ph.close FROM price_history ph
+                     WHERE ph.instrument_id = i.instrument_id
+                       AND ph.trade_date <= date(lp.trade_date, '-30 days')
+                       AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_1m,
+                   (SELECT ph.close FROM price_history ph
+                     WHERE ph.instrument_id = i.instrument_id
+                       AND ph.trade_date <= date(lp.trade_date, '-365 days')
+                       AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_1y
             FROM instruments i
             LEFT JOIN lp ON lp.instrument_id = i.instrument_id AND lp.rn = 1
             WHERE i.instrument_type != 'stock' AND i.is_active = 1
@@ -50,10 +69,16 @@ def global_overview():
 
         grouped = {}
         for r in rows:
-            t = r["instrument_type"]
-            if t not in grouped:
-                grouped[t] = []
-            grouped[t].append(dict(r))
+            d = dict(r)
+            d.pop("instrument_id", None)
+            latest = d.get("close")
+            for tf, prev_key in (("1w", "close_1w"), ("1m", "close_1m"), ("1y", "close_1y")):
+                prev = d.pop(prev_key)
+                d[f"change_pct_{tf}"] = (
+                    (latest - prev) / prev * 100 if latest is not None and prev not in (None, 0) else None
+                )
+            t = d["instrument_type"]
+            grouped.setdefault(t, []).append(d)
 
         elapsed = time.time() - t0
         logger.info("GET /api/global/overview — %d instruments, %.3fs", len(rows), elapsed)

@@ -41,7 +41,13 @@ Prerequisites (already done)
   Terminal 2 — Frontend (Next.js on :3000)
   cd /Users/ashokvenugopal/Documents/experiments/equity-experiments/equity-dashboard/frontend
       #sometimes the library gets corrected, and you run this first -
-      cd frontend && rm -rf .next && npm run dev 
+      rm -rf .next && npm run dev 
+        cd frontend && rm -rf .next && npm run dev 
+       #if there is issues with modules may need to reinstall 
+        rm -rf .next node_modules package-lock.json && npm install &&
+      # If that still fails, the Next.js 16.2.3 installation itself may be corrupted. You can also try downgrading to a known-stable version: 
+        npm install next@15.3.1 && npm run dev                                        
+  npm run dev  
   npm run dev
       what would be cleaned OR   cd frontend && rm -rf .next node_modules && npm install && npm run dev OR   npm run dev -- --webpack                                           
       Trade-off:
@@ -104,3 +110,38 @@ Prerequisites (already done)
   Tests
 
   PYTHONPATH=. .venv/bin/python -m pytest tests/ -v
+
+
+
+  #NOTES
+  Clean build. /anuj is listed alongside all existing pages. Here's what's on
+  the page:
+
+  1. Global Cues Strip — Compact horizontal pills showing key overnight moves:
+  US indices (Dow/Nasdaq/S&P), GIFT Nifty, Dollar Index, Brent Crude, USD/INR.
+  Each pill: name + close + change%. Fits in one line.
+
+  2. FII Activity Snapshot — Single-line banner: "FII: -1,983 Cr | DII: +2,432
+  Cr (4th consecutive selling day)". Computes the streak count from last 10 days
+   of daily data.
+
+  3. Nifty Technical Levels (THE CORE) — DMA-centric layout:
+  - DMA 20/50/100/200 each showing: level, distance %, above/below with visual
+  bar
+  - 52W High/Low cards with distance %
+  - Period candlestick chart (Day, 1W, 1M, MTD, 1Y, YTD) with SMA lines +
+  crosshair tooltip
+  - RSI with overbought/oversold
+  - S&R levels (S3 to R3)
+
+  4. Bank Nifty Technical Levels — Same layout, side-by-side with Nifty.
+
+  5. Market Breadth — A/D ratio, 52W highs vs lows, 5-day activity bar history.
+
+  6. Sector Rotation — Table with 1W/4W/13W returns + "vs Nifty" relative column
+   showing outperformance/underperformance vs Nifty's 1M return.
+
+  7. FII Derivatives — Compact long/short % bar with extreme warning.
+
+  The /trade-setup page is untouched. "Anuj Setup" added to sidebar between
+  "CNBC Bazaar" and "Trade Setup".

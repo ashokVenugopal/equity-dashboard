@@ -57,13 +57,30 @@ def put_call_ratio(
 
 
 @router.get("/fii-positioning")
-def fii_positioning(limit: int = Query(10, ge=1, le=60)):
-    """FII long/short positioning across index futures, index options, stock futures, stock options."""
-    logger.info("GET /api/derivatives/fii-positioning — limit=%d", limit)
+def fii_positioning(
+    limit: int = Query(40, ge=1, le=200),
+    participants: str = Query(
+        "FII,CLIENT",
+        description="Comma-separated participant types (e.g. 'FII,CLIENT,DII,PRO').",
+    ),
+):
+    """Long/short positioning across index futures, index options, stock futures, stock options.
+
+    Returns rows for the given participants (default: FII and CLIENT so the
+    dashboard can show both side-by-side for comparison). The route name is
+    kept as 'fii-positioning' for backwards compatibility with existing
+    frontend callers.
+    """
+    types = [p.strip().upper() for p in participants.split(",") if p.strip()]
+    if not types:
+        types = ["FII"]
+    logger.info("GET /api/derivatives/fii-positioning — limit=%d participants=%s",
+                limit, ",".join(types))
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
-        rows = conn.execute("""
+        placeholders = ",".join("?" for _ in types)
+        rows = conn.execute(f"""
             SELECT trade_date, participant_type, instrument_category,
                    long_contracts, short_contracts, long_value, short_value,
                    CASE WHEN (long_contracts + short_contracts) > 0
@@ -73,10 +90,10 @@ def fii_positioning(limit: int = Query(10, ge=1, le=60)):
                         THEN ROUND(CAST(short_contracts AS REAL) / (long_contracts + short_contracts) * 100, 2)
                         ELSE NULL END AS short_pct
             FROM best_fo_participant_positioning
-            WHERE participant_type = 'FII'
-            ORDER BY trade_date DESC, instrument_category
+            WHERE participant_type IN ({placeholders})
+            ORDER BY trade_date DESC, participant_type, instrument_category
             LIMIT ?
-        """, (limit,)).fetchall()
+        """, (*types, limit)).fetchall()
 
         result = [dict(r) for r in rows]
         elapsed = time.time() - t0

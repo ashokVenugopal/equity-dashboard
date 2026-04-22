@@ -210,8 +210,12 @@ export function getDerivativesPCR(instrument = "NIFTY", limit = 10): Promise<{ i
   return apiFetch(`/api/derivatives/pcr?instrument=${instrument}&limit=${limit}`);
 }
 
-export function getDerivativesFIIPositioning(limit = 10): Promise<{ positioning: FIIPositioning[] }> {
-  return apiFetch(`/api/derivatives/fii-positioning?limit=${limit}`);
+export function getDerivativesFIIPositioning(
+  limit = 40,
+  participants: string[] = ["FII", "CLIENT"],
+): Promise<{ positioning: FIIPositioning[] }> {
+  const pts = encodeURIComponent(participants.join(","));
+  return apiFetch(`/api/derivatives/fii-positioning?limit=${limit}&participants=${pts}`);
 }
 
 export function getDerivativesOIChanges(instrument = "NIFTY"): Promise<{ instrument: string; oi_data: Record<string, unknown>[] }> {

@@ -17,6 +17,7 @@ import {
   type SectorPerformanceRow,
 } from "@/lib/api";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { ParticipantPositioningPanel } from "@/components/derivatives/ParticipantPositioningPanel";
 import { useCachedData } from "@/lib/cache";
 import {
   computeFIIStreak,
@@ -70,7 +71,9 @@ export default function AnujPage() {
       getIndexDetailOverview("nifty-50"),
       getIndexDetailStats("nifty-bank"),
       getIndexDetailOverview("nifty-bank"),
-      getDerivativesFIIPositioning(5),
+      // 40 rows = 5 trade dates × 2 participants × 4 instrument categories.
+      // Covers the 5-day history panel for both FII and CLIENT.
+      getDerivativesFIIPositioning(40, ["FII", "CLIENT"]),
       getGlobalOverview(),
       getMarketBreadth(5),
       getSectorPerformance("sector"),
@@ -120,8 +123,8 @@ export default function AnujPage() {
       {/* 6. Sector Rotation */}
       <SectorRotationPanel performance={data.sectorPerf} niftyStats={data.niftyStats} />
 
-      {/* 7. FII Derivatives */}
-      <FIIDerivativesPanel positioning={data.fiiPos} />
+      {/* 7. FII vs Client Derivatives Positioning */}
+      <ParticipantPositioningPanel positioning={data.fiiPos} />
     </div>
   );
 }
@@ -476,49 +479,6 @@ function SectorRotationPanel({ performance, niftyStats }: {
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════
-// 7. FII DERIVATIVES — Compact
-// ═══════════════════════════════════════════════════════════════════════
-
-function FIIDerivativesPanel({ positioning }: { positioning: FIIPositioning[] }) {
-  if (!positioning || positioning.length === 0) {
-    return (
-      <section className="border border-border rounded bg-surface p-4">
-        <h2 className="text-[10px] text-muted uppercase tracking-wider font-medium mb-2">FII Derivatives</h2>
-        <p className="text-muted text-xs">No data. Run: <code className="text-accent">python -m pipeline.cli download-fo-participant</code></p>
-      </section>
-    );
-  }
-
-  const fiiRows = positioning.filter((p) => p.participant_type === "FII");
-  const dates = [...new Set(fiiRows.map((r) => r.trade_date))].sort().reverse();
-  const latest = fiiRows.filter((r) => r.trade_date === dates[0]);
-  const futures = latest.find((r) => r.instrument_category === "INDEX_FUTURES");
-
-  return (
-    <section className="border border-border rounded bg-surface p-4">
-      <div className="flex items-center justify-between mb-2">
-        <h2 className="text-[10px] text-muted uppercase tracking-wider font-medium">FII Index Futures Positioning</h2>
-        <span className="text-[10px] text-muted">{dates[0]}</span>
-      </div>
-      {futures && (
-        <>
-          <div className="flex items-center gap-3 mb-1 text-xs font-mono">
-            <span className="text-positive font-bold">Long {fmt(futures.long_pct, 1)}%</span>
-            <span className="text-negative font-bold">Short {fmt(futures.short_pct, 1)}%</span>
-          </div>
-          <div className="flex h-4 rounded overflow-hidden mb-1">
-            <div className="bg-positive" style={{ width: `${futures.long_pct ?? 50}%` }} />
-            <div className="bg-negative" style={{ width: `${futures.short_pct ?? 50}%` }} />
-          </div>
-          {(futures.short_pct ?? 0) > 70 && (
-            <div className="text-[10px] text-negative font-bold">EXTREME SHORT POSITIONING ({fmt(futures.short_pct, 1)}%)</div>
-          )}
-        </>
-      )}
-    </section>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // PERIOD CANDLESTICK CHART (copied from CNBC — same component)

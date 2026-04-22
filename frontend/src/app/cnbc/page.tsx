@@ -21,6 +21,7 @@ import {
 } from "@/lib/api";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { FlowBarChart, type FlowBarData } from "@/components/charts/FlowBarChart";
+import { ParticipantPositioningPanel } from "@/components/derivatives/ParticipantPositioningPanel";
 import { useCachedData } from "@/lib/cache";
 
 // ── Helpers ──
@@ -76,7 +77,7 @@ export default function CNBCPage() {
       getIndexDetailStats("nifty-bank"),
       getIndexDetailOverview("nifty-bank"),
       getDerivativesPCR("NIFTY", 5),
-      getDerivativesFIIPositioning(10),
+      getDerivativesFIIPositioning(40, ["FII", "CLIENT"]),
       getDerivativesOIChanges("NIFTY"),
       getDerivativesOIChanges("BANKNIFTY"),
       getGlobalOverview(),
@@ -115,7 +116,7 @@ export default function CNBCPage() {
 
       <CashFlowsSection summary={data.flowSummary} daily={data.flowDaily} />
 
-      <FIIPositioningSection positioning={data.fiiPos} />
+      <ParticipantPositioningPanel positioning={data.fiiPos} />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <PCRSection pcr={data.pcr} />
@@ -284,71 +285,6 @@ function FlowPeriodBars({ periods }: { periods: { label: string; fii: number | n
   );
 }
 
-
-// ═══════════════════════════════════════════════════════════════════════
-// 2. FII DERIVATIVES POSITIONING
-// ═══════════════════════════════════════════════════════════════════════
-
-function FIIPositioningSection({ positioning }: { positioning: FIIPositioning[] }) {
-  if (!positioning || positioning.length === 0) {
-    return (
-      <section className="border border-border rounded bg-surface p-4">
-        <h2 className="text-[10px] text-muted uppercase tracking-wider font-medium mb-2">FII Derivatives Positioning</h2>
-        <p className="text-muted text-xs">No positioning data. Run: <code className="text-accent">python -m pipeline.cli download-fo-participant</code></p>
-      </section>
-    );
-  }
-
-  const fiiRows = positioning.filter((p) => p.participant_type === "FII");
-  const dates = [...new Set(fiiRows.map((r) => r.trade_date))].sort().reverse();
-  const latestDate = dates[0];
-  const prevDate = dates[1];
-  const latest = fiiRows.filter((r) => r.trade_date === latestDate);
-  const prev = fiiRows.filter((r) => r.trade_date === prevDate);
-  const futuresLatest = latest.find((r) => r.instrument_category === "INDEX_FUTURES");
-  const futuresPrev = prev.find((r) => r.instrument_category === "INDEX_FUTURES");
-  const optionsLatest = latest.find((r) => r.instrument_category === "INDEX_OPTIONS");
-
-  return (
-    <section className="border border-border rounded bg-surface p-4">
-      <h2 className="text-[10px] text-muted uppercase tracking-wider font-medium mb-3">FII Derivatives Positioning</h2>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <div>
-          <div className="text-[10px] text-muted mb-2">INDEX FUTURES — FIIs ({latestDate})</div>
-          {futuresLatest && (
-            <>
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-positive text-sm font-bold font-mono">Long {fmt(futuresLatest.long_pct, 1)}%</span>
-                <span className="text-negative text-sm font-bold font-mono">Short {fmt(futuresLatest.short_pct, 1)}%</span>
-              </div>
-              <div className="flex h-3 rounded overflow-hidden mb-2">
-                <div className="bg-positive" style={{ width: `${futuresLatest.long_pct ?? 50}%` }} />
-                <div className="bg-negative" style={{ width: `${futuresLatest.short_pct ?? 50}%` }} />
-              </div>
-              {futuresPrev && (
-                <div className="text-[10px] text-muted">
-                  vs {prevDate}: Long {fmt(futuresPrev.long_pct, 1)}% / Short {fmt(futuresPrev.short_pct, 1)}%
-                </div>
-              )}
-              {(futuresLatest.short_pct ?? 0) > 70 && (
-                <div className="mt-2 text-[10px] text-negative font-bold">EXTREME SHORT POSITIONING</div>
-              )}
-            </>
-          )}
-        </div>
-        <div>
-          <div className="text-[10px] text-muted mb-2">INDEX OPTIONS — FIIs</div>
-          {optionsLatest ? (
-            <div className="grid grid-cols-2 gap-2 text-xs font-mono">
-              <div><span className="text-[10px] text-muted block">Long</span><span>{fmt(optionsLatest.long_contracts, 0)}</span></div>
-              <div><span className="text-[10px] text-muted block">Short</span><span>{fmt(optionsLatest.short_contracts, 0)}</span></div>
-            </div>
-          ) : <span className="text-muted text-xs">No options data</span>}
-        </div>
-      </div>
-    </section>
-  );
-}
 
 // ═══════════════════════════════════════════════════════════════════════
 // 3. NIFTY OPTIONS CUES

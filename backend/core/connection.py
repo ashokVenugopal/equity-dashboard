@@ -48,6 +48,9 @@ def get_pipeline_connection() -> sqlite3.Connection:
         raise FileNotFoundError(f"Pipeline database not found: {path}")
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     # WAL mode cannot be set on read-only connections; it must already be set by the writer.
+    # Wait for competing locks (e.g. a WAL checkpoint by the pipeline writer)
+    # instead of failing instantly with 'database is locked'.
+    conn.execute("PRAGMA busy_timeout=15000")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
     logger.debug("Pipeline DB connection opened (read-only): %s", path)

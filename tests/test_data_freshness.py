@@ -28,9 +28,11 @@ class TestDataFreshnessHappyPath:
         assert data["last_trading_day"] == "2026-04-10"
 
     def test_last_price_ingest(self, test_client):
-        """Fixtures have NSE bhavcopy prices for 2026-04-10."""
+        """RISKCO risk-reward fixtures seed prices through the current date."""
+        import datetime as _dt
         data = test_client.get("/api/data-freshness").json()
-        assert data["last_price_ingest"] == "2026-04-10"
+        # Latest seeded close is RISKCO's most recent weekday
+        assert data["last_price_ingest"] >= (_dt.date.today() - _dt.timedelta(days=4)).isoformat()
 
     def test_last_flow_date(self, test_client):
         """Fixtures have daily flows for 2026-04-10."""

@@ -46,7 +46,7 @@ def test_pipeline_connection_reads_data(test_config):
     conn = get_pipeline_connection()
     try:
         row = conn.execute("SELECT COUNT(*) as cnt FROM companies").fetchone()
-        assert row["cnt"] == 3
+        assert row["cnt"] == 4  # RELIANCE, HDFCBANK, TCS, RISKCO
     finally:
         conn.close()
 

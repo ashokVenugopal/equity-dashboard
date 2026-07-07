@@ -40,6 +40,7 @@ def sample_pipeline_db(tmp_path):
     # Seed sample data
     _seed_sample_data(conn)
 
+    _seed_risk_reward_data(conn)
     conn.commit()
     conn.close()
     return str(db_path)
@@ -400,6 +401,15 @@ def _bootstrap_schema(conn):
                 f2.created_at DESC
             LIMIT 1
           );
+
+        -- Simplified best_facts_preferred view (consolidated first, else
+        -- standalone) exposing period_type — mirrors the production view's
+        -- column surface used by /risk-reward.
+        CREATE VIEW IF NOT EXISTS best_facts_preferred AS
+        SELECT f.*, s.period_type, s.statement_type, c.concept_code, c.concept_name
+        FROM facts f
+        JOIN sources s ON f.source_id = s.source_id
+        JOIN concepts c ON f.concept_id = c.concept_id;
     """)
 
 
@@ -617,3 +627,84 @@ def _seed_sample_data(conn):
                     VALUES ('2026-04-10', 'FII', 'CASH_EQUITY', 3000.0, 3500.0, -500.0, 'nse_website', 'daily')""")
     conn.execute("""INSERT INTO institutional_flows (flow_date, participant_type, segment, buy_value, sell_value, net_value, source, period_type)
                     VALUES ('2026-04-10', 'FII', 'FO_INDEX_FUTURES', 10000.0, 12000.0, -2000.0, 'nse_website', 'daily')""")
+
+
+def _seed_risk_reward_data(conn):
+    """Deterministic seeds for /api/company/{symbol}/risk-reward tests.
+
+    Uses a DEDICATED company (RISKCO) so nothing here can disturb the
+    shared RELIANCE fixtures other test modules assert exact values on.
+
+      - 8 quarterly EPS facts of 10.0 each → TTM EPS = 40 (constant)
+      - ~1y of daily closes ramping 800 → 1000 with current 900
+        → PE floor ~20, peak 25, current 22.5, altitude ~50%
+      - 3 annual CFO/PAT pairs → OCF/PAT 0.5, 1.0, 0.8 (altitude 60%)
+    """
+    import datetime as _dt
+
+    cur = conn.execute(
+        "INSERT INTO companies (symbol, slug, isin, name) "
+        "VALUES ('RISKCO', 'riskco', 'INE000RISK01', 'Risk Reward Test Co')")
+    company_id = cur.lastrowid
+    cur = conn.execute(
+        "INSERT INTO instruments (instrument_type, symbol, name, exchange, company_id, currency) "
+        "VALUES ('stock', 'RISKCO', 'Risk Reward Test Co', 'NSE', ?, 'INR')",
+        (company_id,))
+    instrument_id = cur.lastrowid
+
+    cur = conn.execute(
+        "INSERT INTO sources (company_id, file_type, period_type, derivation, statement_type) "
+        "VALUES (?, 'screener_excel', 'quarterly', 'original', 'consolidated')",
+        (company_id,))
+    q_source = cur.lastrowid
+    cur = conn.execute(
+        "INSERT INTO sources (company_id, file_type, period_type, derivation, statement_type) "
+        "VALUES (?, 'screener_excel', 'annual', 'original', 'consolidated')",
+        (company_id,))
+    a_source = cur.lastrowid
+
+    eps_id = conn.execute(
+        "SELECT concept_id FROM concepts WHERE concept_code='eps'").fetchone()[0]
+    conn.execute(
+        "INSERT INTO concepts (concept_code, concept_name, section, unit) "
+        "VALUES ('cfo', 'Cash from Operating Activity', 'cash_flow', 'inr_cr')")
+    cfo_id = conn.execute(
+        "SELECT concept_id FROM concepts WHERE concept_code='cfo'").fetchone()[0]
+    np_id = conn.execute(
+        "SELECT concept_id FROM concepts WHERE concept_code='net_profit'").fetchone()[0]
+
+    today = _dt.date.today()
+
+    # 8 quarter-ends, newest ~15 days ago, stepping back 91 days each
+    qend = today - _dt.timedelta(days=15)
+    for i in range(8):
+        d = (qend - _dt.timedelta(days=91 * i)).isoformat()
+        conn.execute(
+            "INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) "
+            "VALUES (?, ?, ?, ?, 10.0, 'inr')", (q_source, company_id, eps_id, d))
+
+    # ~380 calendar days of weekday closes: linear 800 → 1000, current 900.
+    start_d = today - _dt.timedelta(days=380)
+    days = [start_d + _dt.timedelta(days=i) for i in range(381)]
+    days = [d for d in days if d.weekday() < 5]
+    n = len(days)
+    for i, d in enumerate(days[:-1]):
+        close = 800.0 + (1000.0 - 800.0) * i / (n - 2)
+        conn.execute(
+            "INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange) "
+            "VALUES (?, ?, ?, ?, ?, ?, 1000, 'nse_bhavcopy', 'NSE')",
+            (instrument_id, d.isoformat(), close, close, close, close))
+    conn.execute(
+        "INSERT INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange) "
+        "VALUES (?, ?, 900.0, 900.0, 900.0, 900.0, 1000, 'nse_bhavcopy', 'NSE')",
+        (instrument_id, days[-1].isoformat()))
+
+    # Annual CFO / PAT: ratios newest→oldest 0.8, 1.0, 0.5
+    for years_back, (cfo, pat) in enumerate([(800.0, 1000.0), (1000.0, 1000.0), (500.0, 1000.0)]):
+        fy_end = (today - _dt.timedelta(days=100 + 365 * years_back)).isoformat()
+        conn.execute(
+            "INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) "
+            "VALUES (?, ?, ?, ?, ?, 'inr_cr')", (a_source, company_id, cfo_id, fy_end, cfo))
+        conn.execute(
+            "INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) "
+            "VALUES (?, ?, ?, ?, ?, 'inr_cr')", (a_source, company_id, np_id, fy_end, pat))

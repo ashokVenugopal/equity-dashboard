@@ -13,7 +13,7 @@ def test_health_check(test_client):
     data = resp.json()
     assert data["status"] == "ok"
     assert data["pipeline_db"]["connected"] is True
-    assert data["pipeline_db"]["tables"]["companies"] == 3
+    assert data["pipeline_db"]["tables"]["companies"] == 4  # RELIANCE, HDFCBANK, TCS, RISKCO
     assert data["observations_db"]["connected"] is True
 
 

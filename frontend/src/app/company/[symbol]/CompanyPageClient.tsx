@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect } from "react";
-import type { CompanyMeta, CompanyFinancials, PriceBar } from "@/lib/api";
+import type { CompanyMeta, CompanyFinancials, CompanyRiskReward, PriceBar } from "@/lib/api";
 import { PriceChart } from "@/components/charts/PriceChart";
+import { RiskRewardSection } from "@/components/company/RiskRewardSection";
 import { formatCell } from "@/lib/formatters";
 import { useHashObserver } from "@/hooks/useIntersectionObserver";
 
@@ -10,17 +11,19 @@ interface CompanyPageClientProps {
   meta: CompanyMeta;
   financials: CompanyFinancials;
   prices: PriceBar[];
+  riskReward: CompanyRiskReward | null;
 }
 
 const SECTION_ORDER = ["profit_loss", "balance_sheet", "cash_flow"];
 const SECTION_LABELS: Record<string, string> = {
+  risk_reward: "Risk / Reward",
   profit_loss: "Profit & Loss",
   balance_sheet: "Balance Sheet",
   cash_flow: "Cash Flow",
 };
 
-export function CompanyPageClient({ meta, financials, prices }: CompanyPageClientProps) {
-  const sectionIds = ["overview", ...SECTION_ORDER, "chart"];
+export function CompanyPageClient({ meta, financials, prices, riskReward }: CompanyPageClientProps) {
+  const sectionIds = ["overview", "risk_reward", ...SECTION_ORDER, "chart"];
   useHashObserver(sectionIds);
 
   const periods = financials.periods.slice(0, 10); // Max 10 years
@@ -57,6 +60,9 @@ export function CompanyPageClient({ meta, financials, prices }: CompanyPageClien
           ))}
         </nav>
       </section>
+
+      {/* Risk / Reward — valuation altitude + price-change attribution */}
+      <RiskRewardSection data={riskReward} />
 
       {/* Financial tables — screener.in style: concepts as rows, periods as columns */}
       {SECTION_ORDER.map((sectionKey) => {

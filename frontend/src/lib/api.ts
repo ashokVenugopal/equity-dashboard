@@ -261,6 +261,38 @@ export function getCompanyRatios(symbol: string): Promise<{ symbol: string; peri
   return apiFetch(`/api/company/${symbol}/ratios`);
 }
 
+export interface RiskGauge {
+  floor: number;
+  peak: number;
+  current: number;
+  current_date: string;
+  altitude_pct: number;
+  trend: { date: string; value: number }[];
+}
+
+export interface AttributionRow {
+  window: string;
+  available: boolean;
+  eps_source?: "ttm" | "annual";
+  price_change_pct?: number;
+  earnings_change_pct?: number | null;
+  multiple_change_pct?: number | null;
+  earnings_share_pct?: number | null;
+  multiple_share_pct?: number | null;
+}
+
+export interface CompanyRiskReward {
+  symbol: string;
+  pe: RiskGauge | null;
+  ev_ebitda: RiskGauge | null;
+  ocf_pat: RiskGauge | null;
+  attribution: AttributionRow[];
+}
+
+export function getCompanyRiskReward(symbol: string): Promise<CompanyRiskReward> {
+  return apiFetch(`/api/company/${symbol}/risk-reward`);
+}
+
 export function getCompanyShareholding(symbol: string): Promise<{ symbol: string; periods: string[]; shareholding: FinancialConcept[] }> {
   return apiFetch(`/api/company/${symbol}/shareholding`);
 }

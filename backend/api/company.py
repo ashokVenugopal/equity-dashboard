@@ -293,3 +293,136 @@ def company_peers(symbol: str, limit: int = Query(10, ge=1, le=30)):
         raise
     finally:
         conn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Risk / Reward
+# ─────────────────────────────────────────────────────────────────────────
+
+def _fact_series(conn, company_id: int, concept_code: str, period_type: str,
+                 limit: int = 60):
+    """(period_end_date, value) ascending from best_facts_preferred."""
+    rows = conn.execute("""
+        SELECT bf.period_end_date, bf.value
+        FROM best_facts_preferred bf
+        WHERE bf.company_id = ? AND bf.concept_code = ?
+          AND bf.period_type = ?
+          AND (bf.fiscal_year IS NULL OR bf.fiscal_year != 'TTM')
+          AND bf.value IS NOT NULL
+        ORDER BY bf.period_end_date DESC
+        LIMIT ?
+    """, (company_id, concept_code, period_type, limit)).fetchall()
+    return sorted((r["period_end_date"], r["value"]) for r in rows)
+
+
+def _latest_fact(conn, company_id: int, concept_code: str,
+                 period_type: str = "annual"):
+    series = _fact_series(conn, company_id, concept_code, period_type, limit=1)
+    return series[-1][1] if series else None
+
+
+@router.get("/{symbol}/risk-reward")
+def company_risk_reward(symbol: str):
+    """Valuation altitude gauges + price-change attribution.
+
+    - pe: daily PE (close / TTM EPS) over the last year — floor, peak,
+      current altitude, and a downsampled trend for hover sparklines.
+    - ev_ebitda: daily (mktcap + borrowings − cash) / TTM operating profit.
+    - ocf_pat: annual CFO / PAT over the last 10 fiscal years (cash-flow
+      statements are annual — a 1-year range does not exist for this).
+    - attribution: price change over 1W/1M/3M/6M/1Y/3Y decomposed into
+      earnings change vs multiple change (log-space shares).
+    """
+    from backend.core.risk_reward import (
+        build_attribution_rows, build_ttm_series, daily_ratio_series,
+        gauge_from_series,
+    )
+
+    logger.info("GET /api/company/%s/risk-reward", symbol)
+    t0 = time.time()
+    conn = get_pipeline_connection()
+    try:
+        company = conn.execute(
+            "SELECT company_id FROM companies WHERE symbol = ?",
+            (symbol.upper(),)
+        ).fetchone()
+        if not company:
+            raise HTTPException(status_code=404, detail=f"Company '{symbol}' not found")
+        company_id = company["company_id"]
+
+        instrument = conn.execute(
+            "SELECT instrument_id FROM instruments "
+            "WHERE symbol = ? AND instrument_type = 'stock' AND is_active = 1",
+            (symbol.upper(),)
+        ).fetchone()
+        if not instrument:
+            raise HTTPException(status_code=404, detail=f"No instrument for '{symbol}'")
+
+        # 3Y attribution boundary (1095d) + its staleness tolerance (~110d)
+        # must fit inside the fetch window.
+        price_rows = conn.execute("""
+            SELECT trade_date, close FROM best_prices
+            WHERE instrument_id = ? AND trade_date >= date('now', '-1300 days')
+            ORDER BY trade_date ASC
+        """, (instrument["instrument_id"],)).fetchall()
+        prices = [(r["trade_date"], r["close"]) for r in price_rows
+                  if r["close"] is not None]
+        if not prices:
+            raise HTTPException(status_code=404, detail=f"No price data for '{symbol}'")
+        prices_1y = prices[-252:]  # ~1 trading year
+
+        # TTM EPS + TTM operating profit from quarterly facts
+        eps_q = _fact_series(conn, company_id, "eps", "quarterly")
+        ttm_eps = build_ttm_series(eps_q)
+        op_q = _fact_series(conn, company_id, "operating_profit", "quarterly")
+        ttm_ebitda = build_ttm_series(op_q)
+
+        # PE gauge (1y)
+        pe_series = daily_ratio_series(prices_1y, ttm_eps)
+        pe_gauge = gauge_from_series(pe_series)
+
+        # EV/EBITDA gauge (1y): EV = close×shares + borrowings − cash.
+        # Shares are in count; close×shares gives INR — facts are in Cr,
+        # so scale by 1e-7 (1 Cr = 1e7).
+        ev_gauge = None
+        shares = _latest_fact(conn, company_id, "num_equity_shares")
+        borrowings = _latest_fact(conn, company_id, "borrowings") or 0.0
+        cash = _latest_fact(conn, company_id, "cash_and_bank") or 0.0
+        if shares and ttm_ebitda:
+            ev_series = daily_ratio_series(
+                prices_1y, ttm_ebitda,
+                numerator_extra=(borrowings - cash),
+                price_multiplier=shares * 1e-7,
+            )
+            ev_gauge = gauge_from_series(ev_series)
+
+        # OCF/PAT gauge: annual, last 10 FYs
+        cfo_a = dict(_fact_series(conn, company_id, "cfo", "annual", limit=14))
+        pat_a = dict(_fact_series(conn, company_id, "net_profit", "annual", limit=14))
+        ocf_pat_series = sorted(
+            (d, round(cfo_a[d] / pat_a[d], 3))
+            for d in (set(cfo_a) & set(pat_a))
+            if pat_a[d] and pat_a[d] > 0
+        )[-10:]
+        ocf_gauge = gauge_from_series(ocf_pat_series)
+
+        # Attribution table (annual EPS as 3Y fallback)
+        eps_annual = _fact_series(conn, company_id, "eps", "annual", limit=8)
+        attribution = build_attribution_rows(prices, ttm_eps, eps_annual)
+
+        elapsed = time.time() - t0
+        logger.info("GET /api/company/%s/risk-reward — %.3fs", symbol, elapsed)
+        return {
+            "symbol": symbol.upper(),
+            "pe": pe_gauge,
+            "ev_ebitda": ev_gauge,
+            "ocf_pat": ocf_gauge,
+            "attribution": attribution,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("GET /api/company/%s/risk-reward — failed: %s", symbol, e)
+        raise
+    finally:
+        conn.close()

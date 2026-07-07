@@ -53,6 +53,7 @@ from backend.api.heatmap import router as heatmap_router
 from backend.api.global_view import router as global_view_router
 from backend.api.fundflow import router as fundflow_router
 from backend.api.index_detail import router as index_detail_router
+from backend.api.index_history import router as index_history_router
 from backend.api.pine import router as pine_router
 from backend.api.export import router as export_router
 
@@ -72,6 +73,7 @@ app.include_router(pine_router)
 app.include_router(export_router)
 app.include_router(fundflow_router)
 app.include_router(index_detail_router)
+app.include_router(index_history_router)
 
 logger.info("Equity Dashboard API initialized. Routes: %d", len(app.routes))
 

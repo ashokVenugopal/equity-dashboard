@@ -402,6 +402,11 @@ def _bootstrap_schema(conn):
             LIMIT 1
           );
 
+        -- Simplified active_classifications view (current rows only)
+        CREATE VIEW IF NOT EXISTS active_classifications AS
+        SELECT * FROM classifications
+        WHERE effective_to IS NULL OR effective_to >= date('now');
+
         -- Simplified best_facts_preferred view (consolidated first, else
         -- standalone) exposing period_type — mirrors the production view's
         -- column surface used by /risk-reward.

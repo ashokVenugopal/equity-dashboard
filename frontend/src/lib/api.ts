@@ -293,6 +293,62 @@ export function getCompanyRiskReward(symbol: string): Promise<CompanyRiskReward>
   return apiFetch(`/api/company/${symbol}/risk-reward`);
 }
 
+// ── Index history (/indices page) ──
+
+export interface IndexCatalog {
+  instruments: Record<string, { symbol: string; name: string; exchange: string | null }[]>;
+  baskets: { classification_type: string; classification_name: string; members: number }[];
+}
+
+export interface OverlaySeries {
+  symbol: string;
+  name: string;
+  instrument_type: string;
+  points: { time: string; value: number }[];
+}
+
+export interface RangeHL {
+  high: number;
+  low: number;
+  off_high_pct: number;
+  off_low_pct: number;
+}
+
+export interface IndexStatsRow {
+  symbol: string;
+  name?: string;
+  instrument_type?: string;
+  available: boolean;
+  last?: number;
+  last_date?: string;
+  first_date?: string;
+  w52?: RangeHL;
+  y3?: RangeHL;
+  alltime?: RangeHL;
+}
+
+export function getIndexHistoryCatalog(): Promise<IndexCatalog> {
+  return apiFetch(`/api/index-history/catalog`);
+}
+
+export function getIndexHistorySeries(
+  symbols: string[], range = "3y", normalize = true,
+): Promise<{ range: string; normalized: boolean; series: OverlaySeries[] }> {
+  return apiFetch(
+    `/api/index-history/series?symbols=${encodeURIComponent(symbols.join(","))}&range=${range}&normalize=${normalize}`);
+}
+
+export function getIndexHistoryStats(symbols: string[]): Promise<{ stats: IndexStatsRow[] }> {
+  return apiFetch(`/api/index-history/stats?symbols=${encodeURIComponent(symbols.join(","))}`);
+}
+
+export function getIndexHistoryBasket(
+  classificationType: string, name: string, range = "3y",
+): Promise<{ name: string; members_used: number; points: { time: string; value: number }[] }> {
+  return apiFetch(
+    `/api/index-history/basket?classification_type=${encodeURIComponent(classificationType)}&name=${encodeURIComponent(name)}&range=${range}`);
+}
+
 export function getCompanyShareholding(symbol: string): Promise<{ symbol: string; periods: string[]; shareholding: FinancialConcept[] }> {
   return apiFetch(`/api/company/${symbol}/shareholding`);
 }

@@ -6,13 +6,15 @@ Powers the /indices dashboard page: compare standard indices (India +
 global), stocks (pair comparison for portfolio building), and custom
 indices built from classification groups (themes, niche indices, sectors).
 """
+import json
 import logging
+import re
 import time
 from typing import List, Optional
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Body, HTTPException, Query
 
-from backend.core.connection import get_pipeline_connection
+from backend.core.connection import get_observations_connection, get_pipeline_connection
 
 logger = logging.getLogger(__name__)
 
@@ -180,6 +182,155 @@ def stats(symbols: str = Query(..., description="Comma-separated, max 4")):
         conn.close()
 
 
+
+def _equal_weight_series(conn, instrument_ids, range_days, min_floor: int = 3):
+    """Equal-weight basket: each instrument rebased to 100 at its first
+    date in the window; daily value = mean across instruments with data
+    that day (at least max(min_floor, used/2) reporting)."""
+    rebased_by_day: dict = {}
+    counted = 0
+    for iid in instrument_ids:
+        pts = _series_for_instrument(conn, iid, range_days)
+        if len(pts) < 30:
+            continue
+        counted += 1
+        base = pts[0][1]
+        for d, v in pts:
+            rebased_by_day.setdefault(d, []).append(v / base * 100.0)
+
+    min_members = max(min_floor, counted // 2)
+    points = [
+        {"time": d, "value": round(sum(vals) / len(vals), 2)}
+        for d, vals in sorted(rebased_by_day.items())
+        if len(vals) >= min_members
+    ]
+    return points, counted
+
+
+# ── User-defined custom indices (stored in the observations DB) ──
+
+def _validate_custom_payload(name: str, symbols: list) -> tuple:
+    name = (name or "").strip()
+    if not name or len(name) > 60 or not re.match(r"^[\w .&/-]+$", name):
+        raise HTTPException(status_code=400, detail="Invalid name (1-60 chars, alphanumeric/space/.&/-)")
+    if not isinstance(symbols, list) or not (2 <= len(symbols) <= 50):
+        raise HTTPException(status_code=400, detail="Need 2-50 symbols")
+    cleaned = sorted({str(s).strip().upper() for s in symbols if str(s).strip()})
+    if len(cleaned) < 2:
+        raise HTTPException(status_code=400, detail="Need 2-50 distinct symbols")
+    return name, cleaned
+
+
+@router.get("/custom")
+def list_custom_indices():
+    """All user-defined custom indices."""
+    conn = get_observations_connection()
+    try:
+        rows = conn.execute(
+            "SELECT custom_index_id, name, symbols_json, updated_at "
+            "FROM custom_indices ORDER BY name").fetchall()
+        return {"custom_indices": [
+            {"id": r["custom_index_id"], "name": r["name"],
+             "symbols": json.loads(r["symbols_json"]),
+             "updated_at": r["updated_at"]}
+            for r in rows
+        ]}
+    finally:
+        conn.close()
+
+
+@router.post("/custom")
+def create_custom_index(payload: dict = Body(...)):
+    name, symbols = _validate_custom_payload(
+        payload.get("name", ""), payload.get("symbols", []))
+    # Validate symbols exist in the pipeline universe
+    pconn = get_pipeline_connection()
+    try:
+        known = {r["symbol"] for r in pconn.execute(
+            "SELECT symbol FROM instruments WHERE is_active = 1")}
+    finally:
+        pconn.close()
+    unknown = [s for s in symbols if s not in known]
+    if unknown:
+        raise HTTPException(status_code=400, detail=f"Unknown symbols: {', '.join(unknown[:5])}")
+
+    conn = get_observations_connection()
+    try:
+        try:
+            cur = conn.execute(
+                "INSERT INTO custom_indices (name, symbols_json) VALUES (?, ?)",
+                (name, json.dumps(symbols)))
+            conn.commit()
+        except Exception as exc:
+            if "UNIQUE" in str(exc):
+                raise HTTPException(status_code=409, detail=f"'{name}' already exists")
+            raise
+        logger.info("POST /api/index-history/custom — created '%s' (%d symbols)",
+                    name, len(symbols))
+        return {"id": cur.lastrowid, "name": name, "symbols": symbols}
+    finally:
+        conn.close()
+
+
+@router.put("/custom/{custom_id}")
+def update_custom_index(custom_id: int, payload: dict = Body(...)):
+    name, symbols = _validate_custom_payload(
+        payload.get("name", ""), payload.get("symbols", []))
+    conn = get_observations_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE custom_indices SET name = ?, symbols_json = ?, "
+            "updated_at = datetime('now') WHERE custom_index_id = ?",
+            (name, json.dumps(symbols), custom_id))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Custom index not found")
+        return {"id": custom_id, "name": name, "symbols": symbols}
+    finally:
+        conn.close()
+
+
+@router.delete("/custom/{custom_id}")
+def delete_custom_index(custom_id: int):
+    conn = get_observations_connection()
+    try:
+        cur = conn.execute(
+            "DELETE FROM custom_indices WHERE custom_index_id = ?", (custom_id,))
+        conn.commit()
+        if cur.rowcount == 0:
+            raise HTTPException(status_code=404, detail="Custom index not found")
+        return {"deleted": custom_id}
+    finally:
+        conn.close()
+
+
+@router.get("/custom/{custom_id}/series")
+def custom_index_series(custom_id: int, range: str = Query("3y", pattern="^(1y|3y|5y|max)$")):
+    """Equal-weight series for a user-defined custom index."""
+    oconn = get_observations_connection()
+    try:
+        row = oconn.execute(
+            "SELECT name, symbols_json FROM custom_indices WHERE custom_index_id = ?",
+            (custom_id,)).fetchone()
+    finally:
+        oconn.close()
+    if not row:
+        raise HTTPException(status_code=404, detail="Custom index not found")
+    symbols = json.loads(row["symbols_json"])
+
+    conn = get_pipeline_connection()
+    try:
+        ids = [r["instrument_id"] for r in conn.execute(
+            f"SELECT instrument_id FROM instruments "
+            f"WHERE symbol IN ({','.join('?' for _ in symbols)}) AND is_active = 1",
+            symbols).fetchall()]
+        points, counted = _equal_weight_series(conn, ids, _RANGE_DAYS[range], min_floor=2)
+        return {"id": custom_id, "name": row["name"], "range": range,
+                "members_used": counted, "points": points}
+    finally:
+        conn.close()
+
+
 @router.get("/basket")
 def basket(
     classification_type: str = Query(...),
@@ -205,24 +356,8 @@ def basket(
             raise HTTPException(status_code=404,
                                 detail=f"No basket '{classification_type}:{name}' (need ≥3 members)")
 
-        range_days = _RANGE_DAYS[range]
-        rebased_by_day: dict = {}
-        counted = 0
-        for m in members:
-            pts = _series_for_instrument(conn, m["instrument_id"], range_days)
-            if len(pts) < 30:
-                continue
-            counted += 1
-            base = pts[0][1]
-            for d, v in pts:
-                rebased_by_day.setdefault(d, []).append(v / base * 100.0)
-
-        min_members = max(3, counted // 2)
-        points = [
-            {"time": d, "value": round(sum(vals) / len(vals), 2)}
-            for d, vals in sorted(rebased_by_day.items())
-            if len(vals) >= min_members
-        ]
+        points, counted = _equal_weight_series(
+            conn, [m["instrument_id"] for m in members], _RANGE_DAYS[range])
         logger.info("GET /api/index-history/basket %s:%s — %d members, %.3fs",
                     classification_type, name, counted, time.time() - t0)
         return {

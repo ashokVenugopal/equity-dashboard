@@ -728,6 +728,18 @@ def _seed_risk_reward_data(conn):
         "VALUES (?, ?, 900.0, 900.0, 900.0, 900.0, 1000, 'nse_bhavcopy', 'NSE')",
         (instrument_id, days[-1].isoformat()))
 
+    # Companion instrument for custom-index tests (no companies row, so
+    # company-count assertions elsewhere stay untouched). Flat 100 closes.
+    cur = conn.execute(
+        "INSERT INTO instruments (instrument_type, symbol, name, exchange, currency) "
+        "VALUES ('stock', 'RISKCO2', 'Risk Reward Companion', 'NSE', 'INR')")
+    riskco2_id = cur.lastrowid
+    for d in days[-60:]:
+        conn.execute(
+            "INSERT OR REPLACE INTO price_history (instrument_id, trade_date, open, high, low, close, volume, source, exchange) "
+            "VALUES (?, ?, 100.0, 100.0, 100.0, 100.0, 1000, 'nse_bhavcopy', 'NSE')",
+            (riskco2_id, d.isoformat()))
+
     # Annual CFO / PAT: ratios newest→oldest 0.8, 1.0, 0.5
     for years_back, (cfo, pat) in enumerate([(800.0, 1000.0), (1000.0, 1000.0), (500.0, 1000.0)]):
         fy_end = (today - _dt.timedelta(days=100 + 365 * years_back)).isoformat()

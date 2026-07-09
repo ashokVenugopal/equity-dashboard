@@ -35,6 +35,16 @@ CREATE TABLE IF NOT EXISTS observation_history (
     changed_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_obs_history_obs ON observation_history(observation_id);
+
+-- User-defined custom indices for the /indices page: a named set of
+-- stock symbols rendered as an equal-weight basket.
+CREATE TABLE IF NOT EXISTS custom_indices (
+    custom_index_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name            TEXT NOT NULL UNIQUE,
+    symbols_json    TEXT NOT NULL,           -- JSON array of symbols
+    created_at      TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 

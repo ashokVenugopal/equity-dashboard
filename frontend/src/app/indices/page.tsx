@@ -2,10 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  createCustomIndex,
+  deleteCustomIndex,
+  getCustomIndexSeries,
+  getCustomIndices,
   getIndexHistoryBasket,
   getIndexHistoryCatalog,
   getIndexHistorySeries,
   getIndexHistoryStats,
+  updateCustomIndex,
+  type CustomIndex,
   type IndexCatalog,
   type IndexStatsRow,
   type RangeHL,
@@ -14,13 +20,15 @@ import { MultiLineChart, type OverlayLine } from "@/components/charts/MultiLineC
 import { PageHeader } from "@/components/shared/PageHeader";
 
 /*
- * Index History page: overlay up to 4 instruments (standard indices,
- * global instruments, stocks for pair comparison) plus optional custom
- * baskets (equal-weight classification groups), normalized to 100.
- * Stats table shows 52W / 3Y / all-time high-low with distance.
+ * Index History page: overlay up to 4 instruments plus one basket —
+ * either a classification group (sector/theme/niche/business group) or
+ * a user-defined custom index (editable below the controls). All series
+ * rebased to 100. Click the chart twice to measure % change between two
+ * dates (anchor A → finish B).
  */
 
 const LINE_COLORS = ["#2196F3", "#FFD700", "#AB47BC", "#26A69A", "#FF7043"];
+const BASKET_COLOR = "#FF7043";
 const RANGES = ["1y", "3y", "5y", "max"] as const;
 
 const fmt = (v: number | null | undefined, digits = 2) =>
@@ -32,6 +40,7 @@ const DEFAULT_SYMBOLS = ["NIFTY50", "BANKNIFTY"];
 
 export default function IndicesPage() {
   const [catalog, setCatalog] = useState<IndexCatalog | null>(null);
+  const [customs, setCustoms] = useState<CustomIndex[]>([]);
   const [symbols, setSymbols] = useState<string[]>(DEFAULT_SYMBOLS);
   const [basketKey, setBasketKey] = useState<string>("");
   const [range, setRange] = useState<(typeof RANGES)[number]>("3y");
@@ -41,9 +50,23 @@ export default function IndicesPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // ── Manage custom indices ──
+  const [manageOpen, setManageOpen] = useState(false);
+  const [editId, setEditId] = useState<number | null>(null); // null = create
+  const [editName, setEditName] = useState("");
+  const [editSymbols, setEditSymbols] = useState<string[]>([]);
+  const [editPicker, setEditPicker] = useState("");
+  const [manageError, setManageError] = useState<string | null>(null);
+
+  const refreshCustoms = useCallback(
+    () => getCustomIndices().then((d) => setCustoms(d.custom_indices)).catch(() => {}),
+    [],
+  );
+
   useEffect(() => {
     getIndexHistoryCatalog().then(setCatalog).catch(() => setCatalog(null));
-  }, []);
+    refreshCustoms();
+  }, [refreshCustoms]);
 
   const load = useCallback(async () => {
     if (symbols.length === 0 && !basketKey) return;
@@ -51,13 +74,14 @@ export default function IndicesPage() {
     setError(null);
     try {
       const jobs: Promise<void>[] = [];
-      const nextLines: OverlayLine[] = [];
+      const symbolLines: OverlayLine[] = [];
+      let basketLine: OverlayLine | null = null;
 
       if (symbols.length > 0) {
         jobs.push(
           getIndexHistorySeries(symbols, range).then((d) => {
             d.series.forEach((s, i) => {
-              nextLines.push({
+              symbolLines.push({
                 label: s.symbol,
                 color: LINE_COLORS[i % LINE_COLORS.length],
                 points: s.points,
@@ -70,22 +94,32 @@ export default function IndicesPage() {
         setStats([]);
       }
 
-      if (basketKey) {
-        const [ctype, ...rest] = basketKey.split(":");
+      if (basketKey.startsWith("custom:")) {
+        const id = Number(basketKey.slice(7));
+        jobs.push(
+          getCustomIndexSeries(id, range).then((d) => {
+            basketLine = {
+              label: `${d.name} (custom, ${d.members_used})`,
+              color: BASKET_COLOR,
+              points: d.points,
+            };
+          }),
+        );
+      } else if (basketKey.startsWith("cls:")) {
+        const [, ctype, ...rest] = basketKey.split(":");
         jobs.push(
           getIndexHistoryBasket(ctype, rest.join(":"), range).then((d) => {
-            nextLines.push({
+            basketLine = {
               label: `${rest.join(":")} (eq-wt, ${d.members_used})`,
-              color: LINE_COLORS[4],
+              color: BASKET_COLOR,
               points: d.points,
-            });
+            };
           }),
         );
       }
 
       await Promise.all(jobs);
-      // Keep insertion order stable: symbols first, basket last
-      setLines(nextLines);
+      setLines(basketLine ? [...symbolLines, basketLine] : symbolLines);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -104,12 +138,51 @@ export default function IndicesPage() {
     );
   }, [catalog]);
 
+  const stockSymbols = useMemo(
+    () => (catalog?.instruments.stock ?? []).map((i) => i.symbol),
+    [catalog],
+  );
+
   const addSymbol = (sym: string) => {
     const s = sym.trim().toUpperCase();
     if (!s || symbols.includes(s) || symbols.length >= 4) return;
     if (!allSymbols.some((i) => i.symbol === s)) return;
     setSymbols([...symbols, s]);
     setPickerInput("");
+  };
+
+  const startEdit = (ci: CustomIndex | null) => {
+    setEditId(ci?.id ?? null);
+    setEditName(ci?.name ?? "");
+    setEditSymbols(ci?.symbols ?? []);
+    setEditPicker("");
+    setManageError(null);
+    setManageOpen(true);
+  };
+
+  const saveCustom = async () => {
+    setManageError(null);
+    try {
+      if (editId == null) {
+        const created = await createCustomIndex(editName, editSymbols);
+        setBasketKey(`custom:${created.id}`);
+      } else {
+        await updateCustomIndex(editId, editName, editSymbols);
+      }
+      await refreshCustoms();
+      setEditId(null);
+      setEditName("");
+      setEditSymbols([]);
+      load();
+    } catch (e) {
+      setManageError(String(e));
+    }
+  };
+
+  const removeCustom = async (id: number) => {
+    await deleteCustomIndex(id).catch(() => {});
+    if (basketKey === `custom:${id}`) setBasketKey("");
+    refreshCustoms();
   };
 
   return (
@@ -160,22 +233,39 @@ export default function IndicesPage() {
             </>
           )}
 
-          <span className="text-muted text-[10px] ml-2">custom basket:</span>
+          <span className="text-muted text-[10px] ml-2">basket:</span>
           <select
             value={basketKey}
             onChange={(e) => setBasketKey(e.target.value)}
             className="bg-background border border-border rounded px-2 py-0.5 text-[11px] font-mono max-w-56"
           >
             <option value="">none</option>
-            {catalog?.baskets.map((b) => (
-              <option
-                key={`${b.classification_type}:${b.classification_name}`}
-                value={`${b.classification_type}:${b.classification_name}`}
-              >
-                {b.classification_name} ({b.classification_type}, {b.members})
-              </option>
-            ))}
+            {customs.length > 0 && (
+              <optgroup label="custom indices">
+                {customs.map((c) => (
+                  <option key={c.id} value={`custom:${c.id}`}>
+                    {c.name} ({c.symbols.length})
+                  </option>
+                ))}
+              </optgroup>
+            )}
+            <optgroup label="classification groups">
+              {catalog?.baskets.map((b) => (
+                <option
+                  key={`${b.classification_type}:${b.classification_name}`}
+                  value={`cls:${b.classification_type}:${b.classification_name}`}
+                >
+                  {b.classification_name} ({b.classification_type}, {b.members})
+                </option>
+              ))}
+            </optgroup>
           </select>
+          <button
+            className="text-[11px] text-accent border border-border rounded px-2 py-0.5"
+            onClick={() => (manageOpen ? setManageOpen(false) : startEdit(null))}
+          >
+            {manageOpen ? "close manage" : "manage custom"}
+          </button>
 
           <div className="flex gap-1 ml-auto">
             {RANGES.map((r) => (
@@ -192,15 +282,99 @@ export default function IndicesPage() {
           </div>
         </div>
         <p className="text-[10px] text-muted">
-          All series rebased to 100 at the start of the window — relative performance, not price.
+          All series rebased to 100 at the start of the window · click the chart twice to
+          measure % change between two dates.
         </p>
       </section>
+
+      {/* Manage custom indices */}
+      {manageOpen && (
+        <section className="border border-border rounded bg-surface p-3 space-y-3">
+          <h2 className="text-[11px] text-muted uppercase tracking-wider font-medium">
+            Custom indices
+          </h2>
+
+          {customs.length > 0 && (
+            <ul className="space-y-1">
+              {customs.map((c) => (
+                <li key={c.id} className="flex items-center gap-2 text-[11px] font-mono">
+                  <span className="text-foreground">{c.name}</span>
+                  <span className="text-muted truncate max-w-96">{c.symbols.join(", ")}</span>
+                  <button className="text-accent border border-border rounded px-1.5"
+                          onClick={() => startEdit(c)}>
+                    edit
+                  </button>
+                  <button className="text-negative border border-border rounded px-1.5"
+                          onClick={() => removeCustom(c.id)}>
+                    delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {/* Create / edit form */}
+          <div className="border-t border-border/50 pt-2 space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[10px] text-muted">{editId == null ? "new:" : `editing #${editId}:`}</span>
+              <input
+                value={editName}
+                onChange={(e) => setEditName(e.target.value)}
+                placeholder="index name…"
+                className="bg-background border border-border rounded px-2 py-0.5 text-[11px] font-mono w-48"
+              />
+              {editSymbols.map((s) => (
+                <span key={s} className="flex items-center gap-1 text-[11px] font-mono px-2 py-0.5 rounded border border-border text-foreground">
+                  {s}
+                  <button className="text-muted hover:text-negative"
+                          onClick={() => setEditSymbols(editSymbols.filter((x) => x !== s))}>
+                    ×
+                  </button>
+                </span>
+              ))}
+              <input
+                list="stock-options"
+                value={editPicker}
+                onChange={(e) => setEditPicker(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key !== "Enter") return;
+                  const s = editPicker.trim().toUpperCase();
+                  if (s && stockSymbols.includes(s) && !editSymbols.includes(s)) {
+                    setEditSymbols([...editSymbols, s]);
+                    setEditPicker("");
+                  }
+                }}
+                placeholder="add stock…"
+                className="bg-background border border-border rounded px-2 py-0.5 text-[11px] font-mono w-36"
+              />
+              <datalist id="stock-options">
+                {stockSymbols.map((s) => <option key={s} value={s} />)}
+              </datalist>
+              <button
+                className="text-[11px] text-positive border border-border rounded px-2 py-0.5 disabled:opacity-40"
+                disabled={!editName.trim() || editSymbols.length < 2}
+                onClick={saveCustom}
+              >
+                {editId == null ? "create" : "save"}
+              </button>
+              {editId != null && (
+                <button className="text-[11px] text-muted border border-border rounded px-2 py-0.5"
+                        onClick={() => startEdit(null)}>
+                  new instead
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-muted">2–50 stocks, equal-weighted, rebased to 100.</p>
+            {manageError && <p className="text-[10px] text-negative">{manageError}</p>}
+          </div>
+        </section>
+      )}
 
       {error && (
         <div className="text-negative text-xs border border-negative/30 rounded p-2 bg-negative/5">{error}</div>
       )}
 
-      {/* Overlay chart */}
+      {/* Overlay chart with measure mode */}
       <section className="border border-border rounded bg-surface p-3">
         <MultiLineChart lines={lines} height={360} />
       </section>

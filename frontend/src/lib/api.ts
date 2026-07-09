@@ -371,6 +371,41 @@ export function getMacroEvents(
   return apiFetch(`/api/macro/events?days_ahead=${daysAhead}&days_back=${daysBack}${cats}`);
 }
 
+export interface CustomIndex {
+  id: number;
+  name: string;
+  symbols: string[];
+  updated_at?: string;
+}
+
+export function getCustomIndices(): Promise<{ custom_indices: CustomIndex[] }> {
+  return apiFetch(`/api/index-history/custom`);
+}
+
+export function createCustomIndex(name: string, symbols: string[]): Promise<CustomIndex> {
+  return apiFetch(`/api/index-history/custom`, {
+    method: "POST",
+    body: JSON.stringify({ name, symbols }),
+  });
+}
+
+export function updateCustomIndex(id: number, name: string, symbols: string[]): Promise<CustomIndex> {
+  return apiFetch(`/api/index-history/custom/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ name, symbols }),
+  });
+}
+
+export function deleteCustomIndex(id: number): Promise<{ deleted: number }> {
+  return apiFetch(`/api/index-history/custom/${id}`, { method: "DELETE" });
+}
+
+export function getCustomIndexSeries(
+  id: number, range = "3y",
+): Promise<{ id: number; name: string; members_used: number; points: { time: string; value: number }[] }> {
+  return apiFetch(`/api/index-history/custom/${id}/series?range=${range}`);
+}
+
 export function getIndexHistoryBasket(
   classificationType: string, name: string, range = "3y",
 ): Promise<{ name: string; members_used: number; points: { time: string; value: number }[] }> {

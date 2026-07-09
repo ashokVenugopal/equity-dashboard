@@ -71,3 +71,81 @@ def test_basket_unknown_404(test_client):
 def test_empty_symbols_400(test_client):
     assert test_client.get("/api/index-history/series?symbols=").status_code == 400
     assert test_client.get("/api/index-history/stats?symbols=,,").status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Custom indices (user-defined, stored in observations DB)
+# ---------------------------------------------------------------------------
+
+
+def test_custom_index_crud_roundtrip(test_client):
+    # Create
+    r = test_client.post("/api/index-history/custom",
+                         json={"name": "My Pair", "symbols": ["RISKCO", "RISKCO2"]})
+    assert r.status_code == 200, r.text
+    created = r.json()
+    assert created["symbols"] == ["RISKCO", "RISKCO2"]
+    cid = created["id"]
+
+    # List
+    listed = test_client.get("/api/index-history/custom").json()["custom_indices"]
+    assert any(c["id"] == cid and c["name"] == "My Pair" for c in listed)
+
+    # Update
+    r = test_client.put(f"/api/index-history/custom/{cid}",
+                        json={"name": "My Pair v2", "symbols": ["RISKCO", "RISKCO2"]})
+    assert r.status_code == 200
+    assert r.json()["name"] == "My Pair v2"
+
+    # Delete
+    assert test_client.delete(f"/api/index-history/custom/{cid}").status_code == 200
+    listed = test_client.get("/api/index-history/custom").json()["custom_indices"]
+    assert not any(c["id"] == cid for c in listed)
+
+
+def test_custom_index_validation(test_client):
+    # Too few symbols
+    r = test_client.post("/api/index-history/custom",
+                         json={"name": "One", "symbols": ["RISKCO"]})
+    assert r.status_code == 400
+    # Unknown symbol
+    r = test_client.post("/api/index-history/custom",
+                         json={"name": "Ghost", "symbols": ["RISKCO", "NOSUCHSYM"]})
+    assert r.status_code == 400
+    assert "NOSUCHSYM" in r.json()["detail"]
+    # Bad name
+    r = test_client.post("/api/index-history/custom",
+                         json={"name": "", "symbols": ["RISKCO", "RISKCO2"]})
+    assert r.status_code == 400
+
+
+def test_custom_index_duplicate_name_409(test_client):
+    payload = {"name": "Dup Basket", "symbols": ["RISKCO", "RISKCO2"]}
+    assert test_client.post("/api/index-history/custom", json=payload).status_code == 200
+    r = test_client.post("/api/index-history/custom", json=payload)
+    assert r.status_code == 409
+    # cleanup so other tests see a clean list
+    listed = test_client.get("/api/index-history/custom").json()["custom_indices"]
+    for c in listed:
+        if c["name"] == "Dup Basket":
+            test_client.delete(f"/api/index-history/custom/{c['id']}")
+
+
+def test_custom_index_series_equal_weight(test_client):
+    r = test_client.post("/api/index-history/custom",
+                         json={"name": "EW Test", "symbols": ["RISKCO", "RISKCO2"]})
+    cid = r.json()["id"]
+    d = test_client.get(f"/api/index-history/custom/{cid}/series?range=1y").json()
+    assert d["members_used"] == 2
+    assert len(d["points"]) > 20
+    # Basket days require both members reporting. RISKCO2 exists only for
+    # the last ~60 days, and each member rebases at its OWN first in-window
+    # date — so the first basket point is the mean of (RISKCO already partway
+    # up its ramp, RISKCO2 at 100), not 100. Sanity-band the ends.
+    assert 95.0 < d["points"][0]["value"] < 125.0
+    assert 95.0 < d["points"][-1]["value"] < 125.0
+    test_client.delete(f"/api/index-history/custom/{cid}")
+
+
+def test_custom_index_series_unknown_404(test_client):
+    assert test_client.get("/api/index-history/custom/99999/series").status_code == 404

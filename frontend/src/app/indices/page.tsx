@@ -10,6 +10,7 @@ import {
   getIndexHistoryCatalog,
   getIndexHistorySeries,
   getIndexHistoryStats,
+  getMacroSeries,
   updateCustomIndex,
   type CustomIndex,
   type IndexCatalog,
@@ -47,6 +48,7 @@ export default function IndicesPage() {
   const [lines, setLines] = useState<OverlayLine[]>([]);
   const [stats, setStats] = useState<IndexStatsRow[]>([]);
   const [pickerInput, setPickerInput] = useState("");
+  const [showPe, setShowPe] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -118,14 +120,33 @@ export default function IndicesPage() {
         );
       }
 
+      let peLine: OverlayLine | null = null;
+      if (showPe) {
+        const startByRange: Record<string, string> = {
+          "1y": new Date(Date.now() - 400 * 864e5).toISOString().slice(0, 10),
+          "3y": new Date(Date.now() - 1130 * 864e5).toISOString().slice(0, 10),
+          "5y": new Date(Date.now() - 1860 * 864e5).toISOString().slice(0, 10),
+          max: "2015-01-01",
+        };
+        jobs.push(
+          getMacroSeries(["NIFTY50_PE"], "none", startByRange[range]).then((d) => {
+            const pts = d.series[0]?.points ?? [];
+            if (pts.length > 0) {
+              peLine = { label: "NIFTY PE (left)", color: "#e8e4dc", points: pts, scale: "left" };
+            }
+          }),
+        );
+      }
+
       await Promise.all(jobs);
-      setLines(basketLine ? [...symbolLines, basketLine] : symbolLines);
+      const assembled = basketLine ? [...symbolLines, basketLine] : symbolLines;
+      setLines(peLine ? [...assembled, peLine] : assembled);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [symbols, basketKey, range]);
+  }, [symbols, basketKey, range, showPe]);
 
   useEffect(() => {
     load();
@@ -265,6 +286,16 @@ export default function IndicesPage() {
             onClick={() => (manageOpen ? setManageOpen(false) : startEdit(null))}
           >
             {manageOpen ? "close manage" : "manage custom"}
+          </button>
+
+          <button
+            className={`text-[11px] px-2 py-0.5 rounded border ml-2 ${
+              showPe ? "border-accent text-accent" : "border-border text-muted"
+            }`}
+            onClick={() => setShowPe(!showPe)}
+            title="Overlay NIFTY 50 PE on the left axis (niftyindices.com, 2015→)"
+          >
+            NIFTY PE
           </button>
 
           <div className="flex gap-1 ml-auto">

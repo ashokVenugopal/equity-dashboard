@@ -342,6 +342,35 @@ export function getIndexHistoryStats(symbols: string[]): Promise<{ stats: IndexS
   return apiFetch(`/api/index-history/stats?symbols=${encodeURIComponent(symbols.join(","))}`);
 }
 
+// ── Macro (liquidity + risk calendar) ──
+
+export interface MacroSeries {
+  code: string;
+  points: { time: string; value: number }[];
+}
+
+export interface CalendarEvent {
+  category: string;
+  title: string;
+  country: string | null;
+  symbol: string | null;
+  detail: string | null;
+}
+
+export function getMacroSeries(
+  codes: string[], transform: "none" | "yoy" = "none", start = "2015-01-01",
+): Promise<{ transform: string; series: MacroSeries[] }> {
+  return apiFetch(
+    `/api/macro/series?codes=${encodeURIComponent(codes.join(","))}&transform=${transform}&start=${start}`);
+}
+
+export function getMacroEvents(
+  daysAhead = 45, daysBack = 7, categories: string[] = [],
+): Promise<{ days: { date: string; events: CalendarEvent[] }[]; total: number }> {
+  const cats = categories.length ? `&categories=${encodeURIComponent(categories.join(","))}` : "";
+  return apiFetch(`/api/macro/events?days_ahead=${daysAhead}&days_back=${daysBack}${cats}`);
+}
+
 export function getIndexHistoryBasket(
   classificationType: string, name: string, range = "3y",
 ): Promise<{ name: string; members_used: number; points: { time: string; value: number }[] }> {

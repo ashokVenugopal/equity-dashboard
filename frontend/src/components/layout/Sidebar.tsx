@@ -11,6 +11,8 @@ const NAV_ITEMS = [
   { href: "/fundflow", label: "Flows (Simple)", icon: "⇄" },
   { href: "/fundflow-detail", label: "Flows (Detail)", icon: "⇄" },
   { href: "/indices", label: "Index History", icon: "〽" },
+  { href: "/calendar", label: "Risk Calendar", icon: "🗓" },
+  { href: "/liquidity", label: "Liquidity", icon: "≈" },
   { href: "/index-view/nifty-50", label: "NIFTY 50", icon: "━" },
   { href: "/index-view/nifty-bank", label: "BANKNIFTY", icon: "━" },
   { href: "/sectors", label: "Sectors", icon: "▦" },

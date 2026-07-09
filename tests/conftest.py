@@ -41,6 +41,7 @@ def sample_pipeline_db(tmp_path):
     _seed_sample_data(conn)
 
     _seed_risk_reward_data(conn)
+    _seed_macro_data(conn)
     conn.commit()
     conn.close()
     return str(db_path)
@@ -402,6 +403,29 @@ def _bootstrap_schema(conn):
             LIMIT 1
           );
 
+        CREATE TABLE IF NOT EXISTS macro_series (
+            macro_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            series_code TEXT NOT NULL,
+            obs_date TEXT NOT NULL,
+            value REAL NOT NULL,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (series_code, obs_date, source)
+        );
+
+        CREATE TABLE IF NOT EXISTS market_events (
+            event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_date TEXT NOT NULL,
+            category TEXT NOT NULL,
+            title TEXT NOT NULL,
+            country TEXT,
+            symbol TEXT,
+            detail TEXT,
+            source TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (event_date, category, title, source)
+        );
+
         -- Simplified active_classifications view (current rows only)
         CREATE VIEW IF NOT EXISTS active_classifications AS
         SELECT * FROM classifications
@@ -713,3 +737,29 @@ def _seed_risk_reward_data(conn):
         conn.execute(
             "INSERT INTO facts (source_id, company_id, concept_id, period_end_date, value, unit) "
             "VALUES (?, ?, ?, ?, ?, 'inr_cr')", (a_source, company_id, np_id, fy_end, pat))
+
+
+def _seed_macro_data(conn):
+    """Macro series + events for /api/macro tests. CPI values chosen so
+    YoY is exactly +10% (110/100)."""
+    import datetime as _dt
+    rows = [
+        ("FEDFUNDS", "2025-01-01", 4.33), ("FEDFUNDS", "2025-02-01", 4.10),
+        ("CPITEST", "2024-06-01", 100.0), ("CPITEST", "2025-06-01", 110.0),
+        ("IN_REPO_RATE", "2025-06-06", 5.50),
+    ]
+    for code, d, v in rows:
+        conn.execute(
+            "INSERT OR REPLACE INTO macro_series (series_code, obs_date, value, source) "
+            "VALUES (?, ?, ?, 'test')", (code, d, v))
+    today = _dt.date.today()
+    events = [
+        ((today + _dt.timedelta(days=3)).isoformat(), "fomc", "FOMC rate decision", "US", None),
+        ((today + _dt.timedelta(days=3)).isoformat(), "results", "RELIANCE: Financial Results", "IN", "RELIANCE"),
+        ((today + _dt.timedelta(days=10)).isoformat(), "ipo", "IPO: Test Co", "IN", "TESTCO"),
+        ((today - _dt.timedelta(days=30)).isoformat(), "fomc", "FOMC rate decision (past)", "US", None),
+    ]
+    for d, cat, title, country, sym in events:
+        conn.execute(
+            "INSERT OR REPLACE INTO market_events (event_date, category, title, country, symbol, source) "
+            "VALUES (?, ?, ?, ?, ?, 'test')", (d, cat, title, country, sym))

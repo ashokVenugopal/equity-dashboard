@@ -50,6 +50,15 @@ Prerequisites (already done)
   npm run dev  
   npm run dev
       what would be cleaned OR   cd frontend && rm -rf .next node_modules && npm install && npm run dev OR   npm run dev -- --webpack                                           
+      OR
+      rm -rf .next  && npm run dev 
+      OR 
+      rm -rf .next node_modules && npm install  && npm run dev 
+
+      
+       npm ci 
+       npm cache verify 
+ 
       Trade-off:
       - Turbopack: Faster HMR (~50-200ms), but buggy cache layer (your current
       issue)

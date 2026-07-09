@@ -12,7 +12,9 @@ echo "[INFO] Starting equity-dashboard development servers..."
 
 # Start backend in background
 echo "[INFO] Starting FastAPI backend on :8000..."
-cd "$PROJECT_DIR/backend" && python main.py &
+# backend.main:app must resolve from the project root (backend/ is a
+# package with absolute backend.* imports) — and use the venv python.
+cd "$PROJECT_DIR" && .venv/bin/python -m backend.main &
 BACKEND_PID=$!
 
 # Start frontend in background

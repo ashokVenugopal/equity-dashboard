@@ -4,7 +4,7 @@ dev:
 	./scripts/dev.sh
 
 backend:
-	cd backend && python main.py
+	.venv/bin/python -m backend.main
 
 frontend:
 	cd frontend && npm run dev
@@ -12,7 +12,7 @@ frontend:
 test: test-backend
 
 test-backend:
-	cd backend && python -m pytest ../tests/ -v
+	.venv/bin/python -m pytest tests/ -v
 
 lint:
 	cd backend && python -m ruff check .

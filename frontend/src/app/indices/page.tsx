@@ -403,7 +403,15 @@ export default function IndicesPage() {
               <input
                 list="stock-options"
                 value={editPicker}
-                onChange={(e) => setEditPicker(e.target.value)}
+                onChange={(e) => {
+                  const v = e.target.value.trim().toUpperCase();
+                  if (stockSymbols.includes(v)) {
+                    if (!editSymbols.includes(v)) setEditSymbols((m) => [...m, v]);
+                    setEditPicker("");
+                  } else {
+                    setEditPicker(e.target.value);
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key !== "Enter") return;
                   const s = editPicker.trim().toUpperCase();

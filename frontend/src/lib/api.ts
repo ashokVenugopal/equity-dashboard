@@ -649,6 +649,27 @@ export function getInvestorHoldings(id: number):
   return apiFetch(`/api/investors/${id}/holdings`);
 }
 
+export interface CoInvestor {
+  id: number;
+  name: string;
+  holdings: number;
+  partners: number;
+  shared_total: number;
+}
+
+export interface CoInvestPair {
+  a: number;
+  b: number;
+  count: number;
+  stocks: string[];
+  stocks_total: number;
+}
+
+export function getCoInvestMatrix(quarter = "", category = "", minOverlap = 2, top = 30, minPct = 0):
+  Promise<{ investors: CoInvestor[]; pairs: CoInvestPair[]; quarter: string | null; quarters: string[]; total_investors: number; min_overlap: number }> {
+  return apiFetch(`/api/investors/co-invest?quarter=${quarter}&category=${category}&min_overlap=${minOverlap}&top=${top}&min_pct=${minPct}`);
+}
+
 export function getInvestorGroups(): Promise<{ groups: InvestorGroup[] }> {
   return apiFetch(`/api/investors/groups`);
 }

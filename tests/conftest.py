@@ -490,6 +490,9 @@ def _seed_sample_data(conn):
     conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('eps', 'Earnings Per Share', 'ratio', 'inr')")
     conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('npm', 'Net Profit Margin', 'ratio', 'percent')")
     conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('roe', 'Return on Equity', 'ratio', 'percent')")
+    # Concepts — screener extras exercised by the filter-parser tests
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('debtor_days', 'Debtor Days', 'ratio', 'days')")
+    conn.execute("INSERT INTO concepts (concept_code, concept_name, section, unit) VALUES ('screener_profit_growth_5y', 'Profit Growth 5Y', 'growth', 'percent')")
 
     # Instruments — indices
     conn.execute("""INSERT INTO instruments (instrument_type, symbol, name, exchange, currency)

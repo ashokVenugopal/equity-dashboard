@@ -147,3 +147,28 @@ def test_group_validation(test_client):
                             json={"name": "X", "member_ids": [1]}).status_code == 400
     assert test_client.post("/api/investors/groups",
                             json={"name": "", "member_ids": [1, 2]}).status_code == 400
+
+
+def test_co_invest_matrix(test_client):
+    # Latest quarter (Jun): Alpha and Beta share only GHOSTCO → 1 common.
+    # Default min_overlap=2 filters the pair out entirely.
+    d = test_client.get("/api/investors/co-invest").json()
+    assert d["pairs"] == []
+    assert d["quarter"] == "2026-06-30"
+
+    d = test_client.get("/api/investors/co-invest?min_overlap=1").json()
+    assert len(d["pairs"]) == 1
+    pair = d["pairs"][0]
+    assert pair["count"] == 1 and pair["stocks"] == ["Ghost Co"]
+    names = {i["name"] for i in d["investors"]}
+    assert names == {"Alpha Investor", "Beta Fund"}
+    assert all(i["partners"] == 1 for i in d["investors"])
+
+    # Mar quarter: the only common disclosed stock is RISKCO.
+    d = test_client.get(
+        "/api/investors/co-invest?min_overlap=1&quarter=2026-03-31").json()
+    assert d["pairs"][0]["stocks"] == ["Riskco"]
+
+    # Category filter narrows to one investor → no pairs possible.
+    d = test_client.get("/api/investors/co-invest?min_overlap=1&category=fii").json()
+    assert d["pairs"] == [] and d["total_investors"] == 1

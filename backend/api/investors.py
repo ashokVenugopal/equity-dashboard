@@ -319,6 +319,93 @@ def missing_companies():
         conn.close()
 
 
+@router.get("/co-invest")
+def co_invest_matrix(
+    quarter: str = Query("", description="ISO quarter end; default latest"),
+    category: str = Query(""),
+    min_overlap: int = Query(2, ge=1),
+    top: int = Query(30, ge=5, le=200),
+    min_pct: float = Query(0.0, ge=0.0),
+):
+    """Investor × investor co-investment matrix for one quarter.
+
+    A cell counts stocks both investors disclose (> min_pct) in that
+    quarter. To keep 185×185 manageable the matrix is trimmed to the
+    `top` most-connected investors (connectivity = number of partners
+    with overlap >= min_overlap, ties broken by total shared holdings);
+    pairs below min_overlap are omitted. Each returned pair carries the
+    common stock names (capped) for the tooltip/drill-down.
+    """
+    t0 = time.time()
+    conn = get_pipeline_connection()
+    try:
+        quarters = _quarters(conn)
+        if not quarters:
+            return {"investors": [], "pairs": [], "quarter": None, "quarters": []}
+        latest = quarter if quarter in quarters else quarters[0]
+
+        cat_filter = "AND i.categories LIKE ?" if category else ""
+        params: list = [latest, min_pct] + ([f"%{category}%"] if category else [])
+        rows = conn.execute(f"""
+            SELECT h.investor_id, i.name, h.trendlyne_stock_pk, h.stock_name
+            FROM investor_holdings h
+            JOIN investors i ON i.investor_id = h.investor_id
+            WHERE h.quarter_end = ? AND h.holding_pct > ? {cat_filter}
+        """, params).fetchall()
+
+        port: dict = {}      # investor_id -> set of stock pks
+        names: dict = {}     # investor_id -> investor name
+        stock_names: dict = {}
+        for r in rows:
+            port.setdefault(r["investor_id"], set()).add(r["trendlyne_stock_pk"])
+            names[r["investor_id"]] = r["name"]
+            stock_names[r["trendlyne_stock_pk"]] = r["stock_name"]
+
+        ids = sorted(port, key=lambda i: names[i].lower())
+        overlaps: dict = {}  # (a, b) a<b -> set of common pks
+        for i, a in enumerate(ids):
+            for b in ids[i + 1:]:
+                common = port[a] & port[b]
+                if len(common) >= min_overlap:
+                    overlaps[(a, b)] = common
+
+        # Connectivity ranking, then trim to top-N
+        partners: dict = {}
+        shared: dict = {}
+        for (a, b), common in overlaps.items():
+            partners[a] = partners.get(a, 0) + 1
+            partners[b] = partners.get(b, 0) + 1
+            shared[a] = shared.get(a, 0) + len(common)
+            shared[b] = shared.get(b, 0) + len(common)
+        ranked = sorted(partners,
+                        key=lambda i: (-partners[i], -shared.get(i, 0),
+                                       names[i].lower()))
+        keep = set(ranked[:top])
+
+        investors_out = [{
+            "id": i, "name": names[i], "holdings": len(port[i]),
+            "partners": partners.get(i, 0), "shared_total": shared.get(i, 0),
+        } for i in ranked[:top]]
+
+        pairs_out = []
+        for (a, b), common in overlaps.items():
+            if a not in keep or b not in keep:
+                continue
+            named = sorted(stock_names[pk] for pk in common)
+            pairs_out.append({
+                "a": a, "b": b, "count": len(common),
+                "stocks": named[:25], "stocks_total": len(named),
+            })
+
+        logger.info("GET /api/investors/co-invest %s — %d investors, %d pairs, %.3fs",
+                    latest, len(investors_out), len(pairs_out), time.time() - t0)
+        return {"investors": investors_out, "pairs": pairs_out,
+                "quarter": latest, "quarters": quarters,
+                "total_investors": len(ids), "min_overlap": min_overlap}
+    finally:
+        conn.close()
+
+
 @router.get("/{investor_id}/holdings")
 def investor_holdings(investor_id: int):
     """One investor's full holdings pivot: stocks × quarters."""

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import {
   createInvestorGroup,
   deleteInvestorGroup,
+  getCoInvestMatrix,
   getGroupHoldings,
   getInvestorChanges,
   getInvestorHoldings,
@@ -12,6 +13,8 @@ import {
   getInvestorGroups,
   getMissingCompanies,
   updateInvestorGroup,
+  type CoInvestor,
+  type CoInvestPair,
   type GroupHoldingRow,
   type InvestorChange,
   type InvestorGroup,
@@ -30,7 +33,7 @@ import { PageHeader } from "@/components/shared/PageHeader";
  *   Missing   — held stocks outside our tracked universe (import wishlist)
  */
 
-const VIEWS = ["investors", "changes", "matrix", "groups", "missing"] as const;
+const VIEWS = ["investors", "changes", "matrix", "co-invest", "groups", "missing"] as const;
 type View = (typeof VIEWS)[number];
 
 const CATEGORIES = ["", "individual", "institutional", "fii"] as const;
@@ -95,6 +98,7 @@ export default function InvestorsPage() {
       {view === "investors" && <InvestorsView category={category} setLoading={setLoading} />}
       {view === "changes" && <ChangesView category={category} setLoading={setLoading} />}
       {view === "matrix" && <MatrixView category={category} setLoading={setLoading} />}
+      {view === "co-invest" && <CoInvestView category={category} setLoading={setLoading} />}
       {view === "groups" && <GroupsView setLoading={setLoading} />}
       {view === "missing" && <MissingView setLoading={setLoading} />}
     </div>
@@ -413,6 +417,166 @@ function MatrixView({ category, setLoading }: { category: string; setLoading: (b
   );
 }
 
+// ── Co-invest (investor × investor overlap heatmap) ─────────────────────
+
+function CoInvestView({ category, setLoading }: { category: string; setLoading: (b: boolean) => void }) {
+  const [minOverlap, setMinOverlap] = useState(3);
+  const [top, setTop] = useState(30);
+  const [quarter, setQuarter] = useState("");
+  const [data, setData] = useState<{
+    investors: CoInvestor[]; pairs: CoInvestPair[];
+    quarter: string | null; quarters: string[]; total_investors: number;
+  } | null>(null);
+  const [selectedPair, setSelectedPair] = useState<CoInvestPair | null>(null);
+
+  useEffect(() => {
+    setLoading(true);
+    setSelectedPair(null);
+    getCoInvestMatrix(quarter, category, minOverlap, top)
+      .then(setData)
+      .finally(() => setLoading(false));
+  }, [quarter, category, minOverlap, top, setLoading]);
+
+  const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+  const pairMap = new Map((data?.pairs ?? []).map((p) => [pairKey(p.a, p.b), p]));
+  const maxCount = Math.max(...(data?.pairs ?? []).map((p) => p.count), 1);
+  const invs = data?.investors ?? [];
+  const nameById = new Map(invs.map((i) => [i.id, i.name]));
+  const short = (n: string) => (n.length > 22 ? n.slice(0, 21) + "…" : n);
+
+  return (
+    <section className="border border-border rounded bg-surface p-3">
+      <div className="flex flex-wrap items-center gap-2 mb-2">
+        <select
+          value={quarter}
+          onChange={(e) => setQuarter(e.target.value)}
+          className="bg-background border border-border rounded px-2 py-0.5 text-[11px] font-mono"
+        >
+          {(data?.quarters ?? []).map((q) => (
+            <option key={q} value={q}>{fmtQ(q)}</option>
+          ))}
+        </select>
+        <span className="text-[10px] text-muted ml-2">min common stocks:</span>
+        {[2, 3, 5, 10].map((m) => (
+          <button
+            key={m}
+            onClick={() => setMinOverlap(m)}
+            className={`text-[11px] px-2 py-0.5 rounded border ${
+              minOverlap === m ? "border-accent text-accent" : "border-border text-muted"
+            }`}
+          >
+            ≥{m}
+          </button>
+        ))}
+        <span className="text-[10px] text-muted ml-2">show top:</span>
+        {[20, 30, 50, 100].map((t) => (
+          <button
+            key={t}
+            onClick={() => setTop(t)}
+            className={`text-[11px] px-2 py-0.5 rounded border ${
+              top === t ? "border-accent text-accent" : "border-border text-muted"
+            }`}
+          >
+            {t}
+          </button>
+        ))}
+        <span className="text-[10px] text-muted ml-2">
+          {invs.length} of {data?.total_investors ?? 0} investors (most-connected first) ·
+          cell = stocks both disclose · click a cell to list them
+        </span>
+      </div>
+
+      {invs.length === 0 ? (
+        <p className="text-muted text-xs py-4">
+          No co-investment pairs at this threshold — lower “min common stocks”.
+        </p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="border-collapse font-mono text-[9px]">
+            <thead>
+              <tr>
+                <th className="sticky left-0 bg-surface z-10" />
+                <th className="text-right text-muted pr-1 pb-1 font-medium">n</th>
+                {invs.map((c) => (
+                  <th key={c.id} className="align-bottom pb-1 px-0" title={c.name}>
+                    <div
+                      className="text-muted font-normal whitespace-nowrap mx-auto"
+                      style={{ writingMode: "vertical-rl", transform: "rotate(180deg)", maxHeight: 110, overflow: "hidden" }}
+                    >
+                      {short(c.name)}
+                    </div>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {invs.map((r) => (
+                <tr key={r.id}>
+                  <td
+                    className="sticky left-0 bg-surface z-10 pr-2 py-0 text-muted whitespace-nowrap text-right"
+                    title={`${r.name} — ${r.holdings} holdings, ${r.partners} partners`}
+                  >
+                    {short(r.name)}
+                  </td>
+                  <td className="text-right pr-1 text-muted/70">{r.holdings}</td>
+                  {invs.map((c) => {
+                    if (c.id === r.id) {
+                      return <td key={c.id} className="w-6 h-6 text-center text-muted/40 bg-border/20">·</td>;
+                    }
+                    const p = pairMap.get(pairKey(r.id, c.id));
+                    if (!p) return <td key={c.id} className="w-6 h-6 border border-border/20" />;
+                    const alpha = 0.15 + 0.7 * (p.count / maxCount);
+                    return (
+                      <td
+                        key={c.id}
+                        onClick={() => setSelectedPair(p)}
+                        title={`${r.name} × ${c.name} — ${p.count} common: ${p.stocks.slice(0, 8).join(", ")}${p.stocks_total > 8 ? "…" : ""}`}
+                        className="w-6 h-6 text-center cursor-pointer border border-border/20 hover:outline hover:outline-1 hover:outline-accent"
+                        style={{ backgroundColor: `rgba(33, 150, 243, ${alpha.toFixed(2)})` }}
+                      >
+                        {p.count}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {selectedPair && (
+        <div className="mt-3 border-t border-border/50 pt-2">
+          <div className="flex items-center gap-2 text-[11px] font-mono">
+            <span className="text-accent">
+              {nameById.get(selectedPair.a)} × {nameById.get(selectedPair.b)}
+            </span>
+            <span className="text-muted">— {selectedPair.stocks_total} common holdings</span>
+            <button
+              className="text-[10px] text-muted border border-border rounded px-1.5"
+              onClick={() => setSelectedPair(null)}
+            >
+              close
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {selectedPair.stocks.map((s) => (
+              <span key={s} className="text-[10px] font-mono px-1.5 py-0.5 rounded border border-border">
+                {s}
+              </span>
+            ))}
+            {selectedPair.stocks_total > selectedPair.stocks.length && (
+              <span className="text-[10px] text-muted">
+                +{selectedPair.stocks_total - selectedPair.stocks.length} more
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ── Groups ──────────────────────────────────────────────────────────────
 
 function GroupsView({ setLoading }: { setLoading: (b: boolean) => void }) {
@@ -516,10 +680,22 @@ function GroupsView({ setLoading }: { setLoading: (b: boolean) => void }) {
           <input
             list="investor-options"
             value={picker}
-            onChange={(e) => setPicker(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              // Selecting a datalist option fires change (not Enter) —
+              // add immediately on an exact name match.
+              const inv = investors.find((i) => i.name === v.trim());
+              if (inv) {
+                if (!editMembers.includes(inv.id)) setEditMembers((m) => [...m, inv.id]);
+                setPicker("");
+              } else {
+                setPicker(v);
+              }
+            }}
             onKeyDown={(e) => {
               if (e.key !== "Enter") return;
-              const inv = investors.find((i) => i.name === picker.trim());
+              const inv = investors.find(
+                (i) => i.name.toLowerCase() === picker.trim().toLowerCase());
               if (inv && !editMembers.includes(inv.id)) {
                 setEditMembers([...editMembers, inv.id]);
                 setPicker("");
@@ -531,6 +707,19 @@ function GroupsView({ setLoading }: { setLoading: (b: boolean) => void }) {
           <datalist id="investor-options">
             {investors.map((i) => <option key={i.id} value={i.name} />)}
           </datalist>
+          <button
+            className="text-[11px] text-accent border border-border rounded px-2 py-0.5"
+            onClick={() => {
+              const inv = investors.find(
+                (i) => i.name.toLowerCase() === picker.trim().toLowerCase());
+              if (inv && !editMembers.includes(inv.id)) {
+                setEditMembers([...editMembers, inv.id]);
+                setPicker("");
+              }
+            }}
+          >
+            add
+          </button>
           <button
             className="text-[11px] text-positive border border-border rounded px-2 py-0.5 disabled:opacity-40"
             disabled={!editName.trim() || editMembers.length < 2}

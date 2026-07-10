@@ -100,8 +100,9 @@ _CONCEPT_ALIASES = {
 }
 
 # ── Filter condition regex ──
+# Concept names may embed digits ("profit growth 5y", "sales growth 10y").
 _CONDITION_RE = re.compile(
-    r"(?P<concept>[a-zA-Z/\s]+?)\s*(?P<op>[><=!]+)\s*(?P<value>[\d.]+)",
+    r"(?P<concept>[a-zA-Z][a-zA-Z0-9/\s]*?)\s*(?P<op>[><=!]+)\s*(?P<value>[\d.]+)",
     re.IGNORECASE,
 )
 

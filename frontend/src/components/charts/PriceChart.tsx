@@ -33,9 +33,19 @@ interface PriceChartProps {
   onMeasureChange?: (from: string | null, to: string | null) => void;
 }
 
-const VA_FILL = "rgba(33, 150, 243, 0.30)";     // value-area bins
-const OUT_FILL = "rgba(141, 163, 90, 0.22)";    // outside value area
+const VA_FILL = "rgba(33, 150, 243, 0.38)";     // value-area bins
+const OUT_FILL = "rgba(141, 163, 90, 0.30)";    // outside value area
 const LINE_COLORS = { vah: "#FFD700", poc: "#e8e4dc", val: "#26A69A" };
+
+/** Snap-mode grains: fixed lookback window in days, anchored at the
+ * latest bar. Daily bars, so 1D is not offered. */
+const SNAP_GRAINS: { label: string; days: number }[] = [
+  { label: "1W", days: 7 },
+  { label: "1M", days: 30 },
+  { label: "3M", days: 91 },
+  { label: "6M", days: 182 },
+  { label: "1Y", days: 365 },
+];
 
 export function PriceChart({
   data, height = 350, showVolume = true,
@@ -50,6 +60,7 @@ export function PriceChart({
     volumeSeries: ISeriesApi<"Histogram"> | null;
   } | null>(null);
   const [anchors, setAnchors] = useState<string[]>([]);
+  const [snapGrain, setSnapGrain] = useState<string | null>(null);
   const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const activeLevelsRef = useRef<ReturnType<ISeriesApi<"Candlestick">["createPriceLine"]>[]>([]);
   const profileRef = useRef<ChartProfile | null>(profile);
@@ -78,9 +89,9 @@ export function PriceChart({
     const xTo = ts.timeToCoordinate(p.to as Time);
     if (xFrom == null && xTo == null) return;  // window fully off-screen
     const xR = xTo ?? w;
-    const xL = xFrom ?? 0;
-    const span = Math.max(20, xR - xL);
-    const maxLen = Math.min(span * 0.85, 180);
+    // Bar length is a fraction of the canvas, not of the A-B span — a
+    // narrow window still gets a readable histogram.
+    const maxLen = Math.max(70, Math.min(w * 0.22, 260));
     const maxVol = Math.max(...p.bins.map((b) => b.volume), 1);
 
     for (const bin of p.bins) {
@@ -191,6 +202,28 @@ export function PriceChart({
     };
   }, [data, height, showVolume]);
 
+  // Snap mode: lock the visible range to a fixed grain anchored at the
+  // latest bar, and freeze scroll/scale so screenshots are repeatable.
+  useEffect(() => {
+    const chart = chartState?.chart;
+    if (!chart || data.length === 0) return;
+    const grain = SNAP_GRAINS.find((g) => g.label === snapGrain);
+    if (grain) {
+      const to = data[data.length - 1].trade_date;
+      const fromDate = new Date(to);
+      fromDate.setDate(fromDate.getDate() - grain.days);
+      const firstBar = data[0].trade_date;
+      const from = fromDate.toISOString().slice(0, 10);
+      chart.applyOptions({ handleScroll: false, handleScale: false });
+      chart.timeScale().setVisibleRange({
+        from: (from < firstBar ? firstBar : from) as Time,
+        to: to as Time,
+      });
+    } else {
+      chart.applyOptions({ handleScroll: true, handleScale: true });
+    }
+  }, [snapGrain, chartState, data]);
+
   // A/B markers + parent notification
   useEffect(() => {
     const markersApi = markersApiRef.current;
@@ -254,6 +287,30 @@ export function PriceChart({
 
   return (
     <div>
+      <div className="flex items-center justify-end gap-1 mb-1 text-[10px] font-mono">
+        <span className={snapGrain ? "text-accent" : "text-muted"}>
+          snap{snapGrain ? " · range locked" : ""}
+        </span>
+        <button
+          className={`border rounded px-1.5 py-0.5 ${
+            snapGrain === null ? "border-accent text-accent" : "border-border text-muted hover:text-foreground"
+          }`}
+          onClick={() => setSnapGrain(null)}
+        >
+          off
+        </button>
+        {SNAP_GRAINS.map((g) => (
+          <button
+            key={g.label}
+            className={`border rounded px-1.5 py-0.5 ${
+              snapGrain === g.label ? "border-accent text-accent" : "border-border text-muted hover:text-foreground"
+            }`}
+            onClick={() => setSnapGrain(g.label)}
+          >
+            {g.label}
+          </button>
+        ))}
+      </div>
       <div ref={wrapperRef} className="relative w-full">
         <div ref={containerRef} className="w-full" />
         <canvas

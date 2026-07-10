@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { CompanyMeta, CompanyFinancials, CompanyRiskReward, PriceBar } from "@/lib/api";
-import { PriceChart } from "@/components/charts/PriceChart";
+import { PriceChart, type PriceLevelLine } from "@/components/charts/PriceChart";
+import { getVolumeProfile } from "@/lib/api";
 import { RiskRewardSection } from "@/components/company/RiskRewardSection";
 import { formatCell } from "@/lib/formatters";
 import { useHashObserver } from "@/hooks/useIntersectionObserver";
@@ -24,6 +25,27 @@ const SECTION_LABELS: Record<string, string> = {
 
 export function CompanyPageClient({ meta, financials, prices, riskReward }: CompanyPageClientProps) {
   const sectionIds = ["overview", "risk_reward", ...SECTION_ORDER, "chart"];
+  const [levelLines, setLevelLines] = useState<PriceLevelLine[]>([]);
+
+  const onMeasureChange = useCallback(
+    async (from: string | null, to: string | null) => {
+      if (!from || !to) {
+        setLevelLines([]);
+        return;
+      }
+      const vp = await getVolumeProfile(meta.symbol, from, to).catch(() => null);
+      if (!vp || !vp.available || vp.vah == null || vp.val == null) {
+        setLevelLines([]);
+        return;
+      }
+      setLevelLines([
+        { value: vp.vah, label: `VAH ${vp.vah}`, color: "#FFD700" },
+        { value: vp.poc!, label: `POC ${vp.poc}`, color: "#e8e4dc" },
+        { value: vp.val, label: `VAL ${vp.val}`, color: "#26A69A" },
+      ]);
+    },
+    [meta.symbol],
+  );
   useHashObserver(sectionIds);
 
   const periods = financials.periods.slice(0, 10); // Max 10 years
@@ -119,7 +141,18 @@ export function CompanyPageClient({ meta, financials, prices, riskReward }: Comp
         <h2 className="text-xs font-bold text-muted uppercase tracking-wider mb-3">
           Price Chart
         </h2>
-        <PriceChart data={prices} height={350} />
+        <PriceChart
+          data={prices}
+          height={350}
+          levelLines={levelLines}
+          onMeasureChange={onMeasureChange}
+        />
+        {levelLines.length > 0 && (
+          <p className="text-[10px] text-muted mt-1">
+            VAH/POC/VAL: 70% value area for the A→B window from daily bars — an
+            approximation, not intraday volume-at-price.
+          </p>
+        )}
       </section>
     </div>
   );

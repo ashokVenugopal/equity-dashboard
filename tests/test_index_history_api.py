@@ -149,3 +149,54 @@ def test_custom_index_series_equal_weight(test_client):
 
 def test_custom_index_series_unknown_404(test_client):
     assert test_client.get("/api/index-history/custom/99999/series").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Volume profile (VAH/VAL/POC for the A→B measurement)
+# ---------------------------------------------------------------------------
+
+
+def test_volume_profile_uniform_ramp(test_client):
+    """RISKCO: linear 800→1000 ramp, constant volume, flat bars — volume is
+    ~uniform across price, so the 70% value area is roughly the middle 70%
+    of the range (VAL ≈ 830, VAH ≈ 970) with POC between them."""
+    import datetime as dt
+    to = dt.date.today().isoformat()
+    frm = (dt.date.today() - dt.timedelta(days=380)).isoformat()
+    d = test_client.get(
+        f"/api/index-history/volume-profile?symbol=RISKCO&from={frm}&to={to}").json()
+    assert d["available"] is True
+    assert d["approx"] is True
+    assert d["days"] > 200
+    assert d["val"] < d["poc"] < d["vah"]
+    # ~uniform volume: the 70% area covers ~70% of the 800-1000 range.
+    # The greedy expansion resolves ties upward, so the band skews a
+    # little high — assert sane bounds, not exact bins.
+    assert 800 <= d["val"] <= 880
+    assert 930 <= d["vah"] <= 1000
+    assert 120 <= d["vah"] - d["val"] <= 165  # ≈70% of the 200-pt range
+
+
+def test_volume_profile_short_window_refused(test_client):
+    """Fewer than 10 trading days → honest refusal, not a junk profile."""
+    import datetime as dt
+    to = dt.date.today().isoformat()
+    frm = (dt.date.today() - dt.timedelta(days=6)).isoformat()
+    d = test_client.get(
+        f"/api/index-history/volume-profile?symbol=RISKCO&from={frm}&to={to}").json()
+    assert d["available"] is False
+    assert "trading days" in d["reason"]
+
+
+def test_volume_profile_unknown_symbol_404(test_client):
+    r = test_client.get(
+        "/api/index-history/volume-profile?symbol=NOSUCH&from=2026-01-01&to=2026-06-01")
+    assert r.status_code == 404
+
+
+def test_series_includes_base(test_client):
+    """The /series payload carries the rebasing base so clients can convert
+    absolute price levels (VAH/VAL) into rebased units."""
+    d = test_client.get("/api/index-history/series?symbols=RISKCO&range=1y").json()
+    s = d["series"][0]
+    assert s["base"] is not None and s["base"] > 0

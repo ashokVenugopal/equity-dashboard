@@ -117,14 +117,17 @@ def series(
         out = []
         for inst in instruments:
             pts = _series_for_instrument(conn, inst["instrument_id"], _RANGE_DAYS[range])
+            base = pts[0][1] if pts else None
             if normalize and pts:
-                base = pts[0][1]
                 data = [{"time": d, "value": round(v / base * 100.0, 2)} for d, v in pts]
             else:
                 data = [{"time": d, "value": v} for d, v in pts]
             out.append({
                 "symbol": inst["symbol"], "name": inst["name"],
                 "instrument_type": inst["instrument_type"],
+                # Base close used for rebasing — lets the client convert
+                # absolute price levels (e.g. VAH/VAL) into rebased units.
+                "base": base,
                 "points": data,
             })
         logger.info("GET /api/index-history/series %s — %.3fs", symbols, time.time() - t0)
@@ -327,6 +330,109 @@ def custom_index_series(custom_id: int, range: str = Query("3y", pattern="^(1y|3
         points, counted = _equal_weight_series(conn, ids, _RANGE_DAYS[range], min_floor=2)
         return {"id": custom_id, "name": row["name"], "range": range,
                 "members_used": counted, "points": points}
+    finally:
+        conn.close()
+
+
+
+_VALUE_AREA_PCT = 0.70
+_PROFILE_BINS = 60
+_MIN_PROFILE_DAYS = 10
+
+
+def _volume_profile(bars, bins: int = _PROFILE_BINS):
+    """Composite volume profile from daily bars (approximation: each
+    day's volume spread uniformly across its high-low range).
+
+    Returns (poc, vah, val, total_volume) — the value area is grown
+    outward from the POC by repeatedly taking the higher-volume adjacent
+    bin until _VALUE_AREA_PCT of volume is enclosed (standard method).
+    """
+    lo = min(b[0] for b in bars)
+    hi = max(b[1] for b in bars)
+    if hi <= lo:
+        return None
+    width = (hi - lo) / bins
+    vol = [0.0] * bins
+
+    for b_lo, b_hi, b_vol in bars:
+        if not b_vol:
+            continue
+        if b_hi <= b_lo:
+            idx = min(int((b_lo - lo) / width), bins - 1)
+            vol[idx] += b_vol
+            continue
+        start = max(0, min(int((b_lo - lo) / width), bins - 1))
+        end = max(0, min(int((b_hi - lo) / width), bins - 1))
+        share = b_vol / (end - start + 1)
+        for i in range(start, end + 1):
+            vol[i] += share
+
+    total = sum(vol)
+    if total <= 0:
+        return None
+
+    poc_idx = max(range(bins), key=lambda i: vol[i])
+    lo_idx = hi_idx = poc_idx
+    enclosed = vol[poc_idx]
+    while enclosed < total * _VALUE_AREA_PCT and (lo_idx > 0 or hi_idx < bins - 1):
+        below = vol[lo_idx - 1] if lo_idx > 0 else -1.0
+        above = vol[hi_idx + 1] if hi_idx < bins - 1 else -1.0
+        if above >= below:
+            hi_idx += 1
+            enclosed += vol[hi_idx]
+        else:
+            lo_idx -= 1
+            enclosed += vol[lo_idx]
+
+    center = lambda i: lo + (i + 0.5) * width
+    return {
+        "poc": round(center(poc_idx), 2),
+        "vah": round(lo + (hi_idx + 1) * width, 2),
+        "val": round(lo + lo_idx * width, 2),
+        "total_volume": round(total),
+    }
+
+
+@router.get("/volume-profile")
+def volume_profile(
+    symbol: str = Query(...),
+    date_from: str = Query(..., alias="from"),
+    date_to: str = Query(..., alias="to"),
+):
+    """VAH / VAL / POC for a date window, from daily bars.
+
+    APPROXIMATION: true value areas need intraday volume-at-price; with
+    daily bars each day's volume is spread uniformly across its high-low
+    range. Reasonable for multi-week windows; refused below
+    _MIN_PROFILE_DAYS trading days.
+    """
+    t0 = time.time()
+    conn = get_pipeline_connection()
+    try:
+        inst = _resolve_symbols(conn, [symbol])[0]
+        rows = conn.execute("""
+            SELECT low, high, volume FROM best_prices
+            WHERE instrument_id = ? AND trade_date >= ? AND trade_date <= ?
+              AND low IS NOT NULL AND high IS NOT NULL
+            ORDER BY trade_date ASC
+        """, (inst["instrument_id"], date_from, date_to)).fetchall()
+        bars = [(r["low"], r["high"], r["volume"] or 0) for r in rows]
+        with_vol = [b for b in bars if b[2] > 0]
+
+        if len(with_vol) < _MIN_PROFILE_DAYS:
+            return {"symbol": inst["symbol"], "available": False,
+                    "reason": f"needs >= {_MIN_PROFILE_DAYS} trading days with volume "
+                              f"(got {len(with_vol)})"}
+        profile = _volume_profile(with_vol)
+        if profile is None:
+            return {"symbol": inst["symbol"], "available": False,
+                    "reason": "degenerate price range"}
+        logger.info("GET /api/index-history/volume-profile %s %s→%s — %.3fs",
+                    symbol, date_from, date_to, time.time() - t0)
+        return {"symbol": inst["symbol"], "available": True,
+                "from": date_from, "to": date_to, "days": len(with_vol),
+                "approx": True, **profile}
     finally:
         conn.close()
 

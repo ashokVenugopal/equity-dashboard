@@ -304,6 +304,8 @@ export interface OverlaySeries {
   symbol: string;
   name: string;
   instrument_type: string;
+  /** First close in the window — the rebasing base (null if no data). */
+  base: number | null;
   points: { time: string; value: number }[];
 }
 
@@ -404,6 +406,21 @@ export function getCustomIndexSeries(
   id: number, range = "3y",
 ): Promise<{ id: number; name: string; members_used: number; points: { time: string; value: number }[] }> {
   return apiFetch(`/api/index-history/custom/${id}/series?range=${range}`);
+}
+
+export interface VolumeProfile {
+  symbol: string;
+  available: boolean;
+  reason?: string;
+  days?: number;
+  approx?: boolean;
+  poc?: number;
+  vah?: number;
+  val?: number;
+}
+
+export function getVolumeProfile(symbol: string, from: string, to: string): Promise<VolumeProfile> {
+  return apiFetch(`/api/index-history/volume-profile?symbol=${encodeURIComponent(symbol)}&from=${from}&to=${to}`);
 }
 
 export function getIndexHistoryBasket(

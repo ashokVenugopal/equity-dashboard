@@ -22,6 +22,14 @@ export interface OverlayLine {
   scale?: "right" | "left";
 }
 
+/** Horizontal level drawn on a specific series (e.g. VAH/VAL). */
+export interface ChartLevelLine {
+  seriesLabel: string;
+  value: number;
+  label: string;
+  color: string;
+}
+
 const fmt2 = (v: number) => v.toLocaleString("en-IN", { maximumFractionDigits: 2 });
 
 interface MeasureResult {
@@ -47,7 +55,17 @@ function valueAsOf(points: { time: string; value: number }[], iso: string): numb
  * finish — the panel below reports each series' % change between the
  * two dates (chronologically ordered, whichever order you click).
  */
-export function MultiLineChart({ lines, height = 320 }: { lines: OverlayLine[]; height?: number }) {
+export function MultiLineChart({
+  lines,
+  height = 320,
+  levelLines = [],
+  onMeasureChange,
+}: {
+  lines: OverlayLine[];
+  height?: number;
+  levelLines?: ChartLevelLine[];
+  onMeasureChange?: (from: string | null, to: string | null) => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [chartState, setChartState] = useState<{
@@ -59,6 +77,8 @@ export function MultiLineChart({ lines, height = 320 }: { lines: OverlayLine[]; 
   linesRef.current = lines;
 
   const markerTargetRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const seriesByLabelRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const activeLevelLinesRef = useRef<{ series: ISeriesApi<"Line">; handle: ReturnType<ISeriesApi<"Line">["createPriceLine"]> }[]>([]);
   const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
 
   useEffect(() => {
@@ -98,6 +118,7 @@ export function MultiLineChart({ lines, height = 320 }: { lines: OverlayLine[]; 
         priceFormat: { type: "price", precision: 2, minMove: 0.01 },
       });
       s.setData(line.points);
+      seriesByLabelRef.current.set(line.label, s);
       if (!firstSeries) firstSeries = s;
       configs.push({
         series: s as ISeriesApi<never>,
@@ -127,6 +148,8 @@ export function MultiLineChart({ lines, height = 320 }: { lines: OverlayLine[]; 
       setChartState(null);
       markerTargetRef.current = null;
       markersApiRef.current = null;
+      seriesByLabelRef.current = new Map();
+      activeLevelLinesRef.current = [];
       chart.remove();
     };
   }, [lines, height]);
@@ -144,6 +167,39 @@ export function MultiLineChart({ lines, height = 320 }: { lines: OverlayLine[]; 
       text: i === 0 ? "A" : "B",
     }));
     markersApi.setMarkers(markers);
+  }, [anchors]);
+
+  // Draw/refresh horizontal level lines (VAH/VAL etc.) on their series.
+  useEffect(() => {
+    for (const { series, handle } of activeLevelLinesRef.current) {
+      try { series.removePriceLine(handle); } catch { /* series may be gone */ }
+    }
+    activeLevelLinesRef.current = [];
+    for (const ll of levelLines) {
+      const series = seriesByLabelRef.current.get(ll.seriesLabel);
+      if (!series) continue;
+      const handle = series.createPriceLine({
+        price: ll.value,
+        color: ll.color,
+        lineWidth: 1,
+        lineStyle: 2, // dashed
+        axisLabelVisible: true,
+        title: ll.label,
+      });
+      activeLevelLinesRef.current.push({ series, handle });
+    }
+  }, [levelLines, chartState]);
+
+  // Notify the parent when the measurement window changes.
+  useEffect(() => {
+    if (!onMeasureChange) return;
+    if (anchors.length < 2) {
+      onMeasureChange(anchors[0] ?? null, null);
+      return;
+    }
+    const [from, to] = [...anchors].sort();
+    onMeasureChange(from, to);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchors]);
 
   const measure: MeasureResult | null = useMemo(() => {

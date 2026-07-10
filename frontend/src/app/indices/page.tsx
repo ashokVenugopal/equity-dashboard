@@ -11,13 +11,14 @@ import {
   getIndexHistorySeries,
   getIndexHistoryStats,
   getMacroSeries,
+  getVolumeProfile,
   updateCustomIndex,
   type CustomIndex,
   type IndexCatalog,
   type IndexStatsRow,
   type RangeHL,
 } from "@/lib/api";
-import { MultiLineChart, type OverlayLine } from "@/components/charts/MultiLineChart";
+import { MultiLineChart, type ChartLevelLine, type OverlayLine } from "@/components/charts/MultiLineChart";
 import { PageHeader } from "@/components/shared/PageHeader";
 
 /*
@@ -49,6 +50,8 @@ export default function IndicesPage() {
   const [stats, setStats] = useState<IndexStatsRow[]>([]);
   const [pickerInput, setPickerInput] = useState("");
   const [showPe, setShowPe] = useState(false);
+  const [seriesBases, setSeriesBases] = useState<Record<string, number>>({});
+  const [levelLines, setLevelLines] = useState<ChartLevelLine[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -74,6 +77,7 @@ export default function IndicesPage() {
     if (symbols.length === 0 && !basketKey) return;
     setLoading(true);
     setError(null);
+    setLevelLines([]);
     try {
       const jobs: Promise<void>[] = [];
       const symbolLines: OverlayLine[] = [];
@@ -82,13 +86,16 @@ export default function IndicesPage() {
       if (symbols.length > 0) {
         jobs.push(
           getIndexHistorySeries(symbols, range).then((d) => {
+            const bases: Record<string, number> = {};
             d.series.forEach((s, i) => {
+              if (s.base) bases[s.symbol] = s.base;
               symbolLines.push({
                 label: s.symbol,
                 color: LINE_COLORS[i % LINE_COLORS.length],
                 points: s.points,
               });
             });
+            setSeriesBases(bases);
           }),
         );
         jobs.push(getIndexHistoryStats(symbols).then((d) => setStats(d.stats)));
@@ -162,6 +169,36 @@ export default function IndicesPage() {
   const stockSymbols = useMemo(
     () => (catalog?.instruments.stock ?? []).map((i) => i.symbol),
     [catalog],
+  );
+
+  const onMeasureChange = useCallback(
+    async (from: string | null, to: string | null) => {
+      if (!from || !to) {
+        setLevelLines([]);
+        return;
+      }
+      // Volume profiles only make sense for real instruments (symbol
+      // lines) — baskets are synthetic and the PE overlay is a ratio.
+      const eligible = symbols.filter((sym) => seriesBases[sym]);
+      const results = await Promise.all(
+        eligible.map((sym) =>
+          getVolumeProfile(sym, from, to).catch(() => null)),
+      );
+      const lines: ChartLevelLine[] = [];
+      results.forEach((vp, i) => {
+        const sym = eligible[i];
+        const base = seriesBases[sym];
+        if (!vp || !vp.available || vp.vah == null || vp.val == null || !base) return;
+        const color = LINE_COLORS[symbols.indexOf(sym) % LINE_COLORS.length];
+        // Convert absolute price levels into this series' rebased units.
+        lines.push(
+          { seriesLabel: sym, value: (vp.vah / base) * 100, label: `VAH ${sym} ${vp.vah}`, color },
+          { seriesLabel: sym, value: (vp.val / base) * 100, label: `VAL ${sym} ${vp.val}`, color },
+        );
+      });
+      setLevelLines(lines);
+    },
+    [symbols, seriesBases],
   );
 
   const addSymbol = (sym: string) => {
@@ -407,7 +444,18 @@ export default function IndicesPage() {
 
       {/* Overlay chart with measure mode */}
       <section className="border border-border rounded bg-surface p-3">
-        <MultiLineChart lines={lines} height={360} />
+        <MultiLineChart
+          lines={lines}
+          height={360}
+          levelLines={levelLines}
+          onMeasureChange={onMeasureChange}
+        />
+        {levelLines.length > 0 && (
+          <p className="text-[10px] text-muted mt-1">
+            VAH/VAL: 70% value area between A and B, from daily bars (volume spread
+            across each day&apos;s range) — an approximation, not intraday volume-at-price.
+          </p>
+        )}
       </section>
 
       {/* Stats table */}

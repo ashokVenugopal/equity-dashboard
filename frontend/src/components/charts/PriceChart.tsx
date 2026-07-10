@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChart,
   type IChartApi,
@@ -14,30 +14,36 @@ import {
   createSeriesMarkers,
 } from "lightweight-charts";
 import { OHLCVTooltip } from "./ChartTooltip";
-import type { PriceBar } from "@/lib/api";
+import type { PriceBar, VolumeProfile } from "@/lib/api";
 
-export interface PriceLevelLine {
-  value: number;
-  label: string;
-  color: string;
+/** Volume profile for an A→B window, rendered as horizontal bars anchored
+ * at B extending left (session-profile style), plus VAH/POC/VAL lines. */
+export interface ChartProfile extends VolumeProfile {
+  from: string;
+  to: string;
 }
 
 interface PriceChartProps {
   data: PriceBar[];
   height?: number;
   showVolume?: boolean;
-  /** Horizontal dashed levels (e.g. VAH/VAL/POC for the A→B window). */
-  levelLines?: PriceLevelLine[];
+  /** Volume profile of the measured window (drawn when available). */
+  profile?: ChartProfile | null;
   /** Two-click measurement: called with (from, to) when both anchors set. */
   onMeasureChange?: (from: string | null, to: string | null) => void;
 }
 
+const VA_FILL = "rgba(33, 150, 243, 0.30)";     // value-area bins
+const OUT_FILL = "rgba(141, 163, 90, 0.22)";    // outside value area
+const LINE_COLORS = { vah: "#FFD700", poc: "#e8e4dc", val: "#26A69A" };
+
 export function PriceChart({
   data, height = 350, showVolume = true,
-  levelLines = [], onMeasureChange,
+  profile = null, onMeasureChange,
 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const [chartState, setChartState] = useState<{
     chart: IChartApi;
     candleSeries: ISeriesApi<"Candlestick">;
@@ -46,6 +52,49 @@ export function PriceChart({
   const [anchors, setAnchors] = useState<string[]>([]);
   const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const activeLevelsRef = useRef<ReturnType<ISeriesApi<"Candlestick">["createPriceLine"]>[]>([]);
+  const profileRef = useRef<ChartProfile | null>(profile);
+  profileRef.current = profile;
+
+  /** Paint the volume-profile histogram onto the overlay canvas. */
+  const drawProfile = useCallback(() => {
+    const canvas = overlayRef.current;
+    const cs = chartState?.candleSeries;
+    const chart = chartState?.chart;
+    if (!canvas || !cs || !chart) return;
+    const p = profileRef.current;
+    const dpr = window.devicePixelRatio || 1;
+    const w = canvas.clientWidth;
+    const h = canvas.clientHeight;
+    canvas.width = w * dpr;
+    canvas.height = h * dpr;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, w, h);
+    if (!p || !p.available || !p.bins?.length) return;
+
+    const ts = chart.timeScale();
+    const xFrom = ts.timeToCoordinate(p.from as Time);
+    const xTo = ts.timeToCoordinate(p.to as Time);
+    if (xFrom == null && xTo == null) return;  // window fully off-screen
+    const xR = xTo ?? w;
+    const xL = xFrom ?? 0;
+    const span = Math.max(20, xR - xL);
+    const maxLen = Math.min(span * 0.85, 180);
+    const maxVol = Math.max(...p.bins.map((b) => b.volume), 1);
+
+    for (const bin of p.bins) {
+      if (!bin.volume) continue;
+      const yTop = cs.priceToCoordinate(bin.price_high);
+      const yBot = cs.priceToCoordinate(bin.price_low);
+      if (yTop == null || yBot == null) continue;
+      const len = (bin.volume / maxVol) * maxLen;
+      ctx.fillStyle = bin.in_va ? VA_FILL : OUT_FILL;
+      // Right-anchored at B, growing left — mirrors the classic
+      // session-profile rendering.
+      ctx.fillRect(xR - len, yTop, len, Math.max(1, yBot - yTop - 0.5));
+    }
+  }, [chartState]);
 
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return;
@@ -166,25 +215,38 @@ export function PriceChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [anchors]);
 
-  // Level lines (VAH/VAL/POC)
+  // VAH/POC/VAL price lines + histogram redraw wiring
   useEffect(() => {
     const cs = chartState?.candleSeries;
-    if (!cs) return;
+    const chart = chartState?.chart;
+    if (!cs || !chart) return;
     for (const handle of activeLevelsRef.current) {
       try { cs.removePriceLine(handle); } catch { /* chart may be gone */ }
     }
     activeLevelsRef.current = [];
-    for (const ll of levelLines) {
-      activeLevelsRef.current.push(cs.createPriceLine({
-        price: ll.value,
-        color: ll.color,
-        lineWidth: 1,
-        lineStyle: 2,
-        axisLabelVisible: true,
-        title: ll.label,
-      }));
+    if (profile?.available && profile.vah != null) {
+      const lines: [number, string, string][] = [
+        [profile.vah, `VAH ${profile.vah}`, LINE_COLORS.vah],
+        [profile.poc!, `POC ${profile.poc}`, LINE_COLORS.poc],
+        [profile.val!, `VAL ${profile.val}`, LINE_COLORS.val],
+      ];
+      for (const [price, title, color] of lines) {
+        activeLevelsRef.current.push(cs.createPriceLine({
+          price, color, lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title,
+        }));
+      }
     }
-  }, [levelLines, chartState]);
+    drawProfile();
+    const ts = chart.timeScale();
+    const onRange = () => drawProfile();
+    ts.subscribeVisibleTimeRangeChange(onRange);
+    window.addEventListener("resize", onRange);
+    return () => {
+      try { ts.unsubscribeVisibleTimeRangeChange(onRange); } catch { /* chart gone */ }
+      window.removeEventListener("resize", onRange);
+    };
+  }, [profile, chartState, drawProfile]);
 
   if (data.length === 0) {
     return <div className="text-muted text-xs text-center py-8">No price data available</div>;
@@ -194,6 +256,11 @@ export function PriceChart({
     <div>
       <div ref={wrapperRef} className="relative w-full">
         <div ref={containerRef} className="w-full" />
+        <canvas
+          ref={overlayRef}
+          className="absolute inset-0 w-full h-full pointer-events-none"
+          style={{ zIndex: 2 }}
+        />
         {chartState && (
           <OHLCVTooltip
             chart={chartState.chart}
@@ -205,13 +272,24 @@ export function PriceChart({
       </div>
       {onMeasureChange && (
         <div className="text-[10px] text-muted mt-1 min-h-4 font-mono">
-          {anchors.length === 0 && "click the chart twice to mark A → B and draw the window's VAH/VAL"}
+          {anchors.length === 0 && "click the chart twice to mark A → B and draw the window's volume profile"}
           {anchors.length === 1 && `anchor A = ${anchors[0]} — click a second point`}
           {anchors.length === 2 && (
-            <button className="border border-border rounded px-1.5 hover:text-negative"
-                    onClick={() => setAnchors([])}>
-              clear A/B
-            </button>
+            <span className="flex items-center gap-2">
+              <button className="border border-border rounded px-1.5 hover:text-negative"
+                      onClick={() => setAnchors([])}>
+                clear A/B
+              </button>
+              {profile?.available && (
+                <span>
+                  VAH {profile.vah} · POC {profile.poc} · VAL {profile.val} — profile from
+                  daily bars (approximation, not intraday volume-at-price)
+                </span>
+              )}
+              {profile && !profile.available && (
+                <span className="text-negative/80">{profile.reason}</span>
+              )}
+            </span>
           )}
         </div>
       )}

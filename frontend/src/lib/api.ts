@@ -3,7 +3,12 @@
  * Used by both server components (SSR) and client components.
  */
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+// In the browser use same-origin (proxied to the backend via next.config
+// rewrites — works from any device). Server components need an absolute URL.
+const API_BASE =
+  typeof window === "undefined"
+    ? process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+    : "";
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const url = `${API_BASE}${path}`;
@@ -408,6 +413,13 @@ export function getCustomIndexSeries(
   return apiFetch(`/api/index-history/custom/${id}/series?range=${range}`);
 }
 
+export interface VolumeProfileBin {
+  price_low: number;
+  price_high: number;
+  volume: number;
+  in_va: boolean;
+}
+
 export interface VolumeProfile {
   symbol: string;
   available: boolean;
@@ -417,6 +429,7 @@ export interface VolumeProfile {
   poc?: number;
   vah?: number;
   val?: number;
+  bins?: VolumeProfileBin[];
 }
 
 export function getVolumeProfile(symbol: string, from: string, to: string): Promise<VolumeProfile> {

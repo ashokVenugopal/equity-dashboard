@@ -391,6 +391,17 @@ def _volume_profile(bars, bins: int = _PROFILE_BINS):
         "vah": round(lo + (hi_idx + 1) * width, 2),
         "val": round(lo + lo_idx * width, 2),
         "total_volume": round(total),
+        # Full histogram for on-chart profile rendering. in_va marks the
+        # 70% value-area bins.
+        "bins": [
+            {
+                "price_low": round(lo + i * width, 2),
+                "price_high": round(lo + (i + 1) * width, 2),
+                "volume": round(vol[i]),
+                "in_va": lo_idx <= i <= hi_idx,
+            }
+            for i in range(bins)
+        ],
     }
 
 

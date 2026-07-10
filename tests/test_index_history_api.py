@@ -200,3 +200,20 @@ def test_series_includes_base(test_client):
     d = test_client.get("/api/index-history/series?symbols=RISKCO&range=1y").json()
     s = d["series"][0]
     assert s["base"] is not None and s["base"] > 0
+
+
+def test_volume_profile_bins_present(test_client):
+    """Bins power the on-chart histogram: full coverage, value-area flags
+    consistent with VAH/VAL."""
+    import datetime as dt
+    to = dt.date.today().isoformat()
+    frm = (dt.date.today() - dt.timedelta(days=380)).isoformat()
+    d = test_client.get(
+        f"/api/index-history/volume-profile?symbol=RISKCO&from={frm}&to={to}").json()
+    assert d["available"] is True
+    bins = d["bins"]
+    assert len(bins) == 60
+    in_va = [b for b in bins if b["in_va"]]
+    assert in_va, "value-area bins must be flagged"
+    assert min(b["price_low"] for b in in_va) == d["val"]
+    assert max(b["price_high"] for b in in_va) == d["vah"]

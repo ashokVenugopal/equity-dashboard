@@ -107,11 +107,19 @@ function InvestorsView({ category, setLoading }: { category: string; setLoading:
   const [investors, setInvestors] = useState<InvestorRow[]>([]);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<InvestorRow | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     getInvestorsList(category)
-      .then((d) => setInvestors(d.investors))
+      .then((d) => {
+        setInvestors(d.investors);
+        if (d.investors.length === 0) {
+          setError("No investor data — run: python -m pipeline.cli download-investor-portfolios");
+        }
+      })
+      .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [category, setLoading]);
 
@@ -124,6 +132,9 @@ function InvestorsView({ category, setLoading }: { category: string; setLoading:
 
   return (
     <section className="border border-border rounded bg-surface p-3">
+      {error && (
+        <p className="text-negative text-xs border border-negative/30 rounded p-2 bg-negative/5 mb-2">{error}</p>
+      )}
       <div className="flex items-center gap-2 mb-2">
         <input
           value={search}

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { CompanyMeta, CompanyFinancials, CompanyRiskReward, PriceBar } from "@/lib/api";
-import { PriceChart, type PriceLevelLine } from "@/components/charts/PriceChart";
+import { PriceChart, type ChartProfile } from "@/components/charts/PriceChart";
 import { getVolumeProfile } from "@/lib/api";
 import { RiskRewardSection } from "@/components/company/RiskRewardSection";
 import { formatCell } from "@/lib/formatters";
@@ -25,24 +25,16 @@ const SECTION_LABELS: Record<string, string> = {
 
 export function CompanyPageClient({ meta, financials, prices, riskReward }: CompanyPageClientProps) {
   const sectionIds = ["overview", "risk_reward", ...SECTION_ORDER, "chart"];
-  const [levelLines, setLevelLines] = useState<PriceLevelLine[]>([]);
+  const [profile, setProfile] = useState<ChartProfile | null>(null);
 
   const onMeasureChange = useCallback(
     async (from: string | null, to: string | null) => {
       if (!from || !to) {
-        setLevelLines([]);
+        setProfile(null);
         return;
       }
       const vp = await getVolumeProfile(meta.symbol, from, to).catch(() => null);
-      if (!vp || !vp.available || vp.vah == null || vp.val == null) {
-        setLevelLines([]);
-        return;
-      }
-      setLevelLines([
-        { value: vp.vah, label: `VAH ${vp.vah}`, color: "#FFD700" },
-        { value: vp.poc!, label: `POC ${vp.poc}`, color: "#e8e4dc" },
-        { value: vp.val, label: `VAL ${vp.val}`, color: "#26A69A" },
-      ]);
+      setProfile(vp ? { ...vp, from, to } : null);
     },
     [meta.symbol],
   );
@@ -144,15 +136,9 @@ export function CompanyPageClient({ meta, financials, prices, riskReward }: Comp
         <PriceChart
           data={prices}
           height={350}
-          levelLines={levelLines}
+          profile={profile}
           onMeasureChange={onMeasureChange}
         />
-        {levelLines.length > 0 && (
-          <p className="text-[10px] text-muted mt-1">
-            VAH/POC/VAL: 70% value area for the A→B window from daily bars — an
-            approximation, not intraday volume-at-price.
-          </p>
-        )}
       </section>
     </div>
   );

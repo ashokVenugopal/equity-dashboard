@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { getIndexDetailOverview, getIndexDetailTable, getIndexDetailStats, getInstrumentPriceHistory } from "@/lib/api";
+import { getIndexDetailOverview, getIndexDetailTable, getIndexDetailStats, getInstrumentPriceHistory, getVolumeProfile } from "@/lib/api";
 import type { IndexStats } from "@/lib/api";
 import { DataTable } from "@/components/tables/DataTable";
 import { ThisViewTable } from "@/components/index/ThisViewTable";
-import { PriceChart } from "@/components/charts/PriceChart";
+import { PriceChart, type ChartProfile } from "@/components/charts/PriceChart";
 import { PerformanceCards } from "@/components/index/PerformanceCards";
 import { TechnicalPanels } from "@/components/index/TechnicalPanels";
 import { PageHeader } from "@/components/shared/PageHeader";
@@ -102,6 +102,7 @@ export default function IndexViewPage() {
   const params = useParams();
   const slug = params.slug as string;
   const [view, setView] = useState<ViewKey>("this_view");
+  const [profile, setProfile] = useState<ChartProfile | null>(null);
 
   // Overview data (cached)
   const overviewFetcher = useCallback(() => getIndexDetailOverview(slug), [slug]);
@@ -113,6 +114,18 @@ export default function IndexViewPage() {
   const indexName: string = ov?.index_name || slug;
   const constituentCount: number = ov?.constituent_count || 0;
   const instrumentSymbol: string = ov?.instrument?.symbol || "";
+
+  const onMeasureChange = useCallback(
+    async (from: string | null, to: string | null) => {
+      if (!from || !to || !instrumentSymbol) {
+        setProfile(null);
+        return;
+      }
+      const vp = await getVolumeProfile(instrumentSymbol, from, to).catch(() => null);
+      setProfile(vp ? { ...vp, from, to } : null);
+    },
+    [instrumentSymbol],
+  );
 
   // Table data (cached per view)
   const tableFetcher = useCallback(() => getIndexDetailTable(slug, view), [slug, view]);
@@ -163,7 +176,12 @@ export default function IndexViewPage() {
 
       {/* Price chart */}
       {chart.data && chart.data.prices && chart.data.prices.length > 0 && (
-        <PriceChart data={chart.data.prices} height={250} />
+        <PriceChart
+          data={chart.data.prices}
+          height={250}
+          profile={profile}
+          onMeasureChange={onMeasureChange}
+        />
       )}
 
       {/* Performance cards with distribution bars */}

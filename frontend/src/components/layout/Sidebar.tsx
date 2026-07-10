@@ -13,6 +13,7 @@ const NAV_ITEMS = [
   { href: "/indices", label: "Index History", icon: "〽" },
   { href: "/calendar", label: "Risk Calendar", icon: "🗓" },
   { href: "/liquidity", label: "Liquidity", icon: "≈" },
+  { href: "/investors", label: "Investors", icon: "☖" },
   { href: "/index-view/nifty-50", label: "NIFTY 50", icon: "━" },
   { href: "/index-view/nifty-bank", label: "BANKNIFTY", icon: "━" },
   { href: "/sectors", label: "Sectors", icon: "▦" },

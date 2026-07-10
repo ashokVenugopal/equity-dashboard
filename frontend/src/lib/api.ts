@@ -554,3 +554,105 @@ export function getIndexDetailStats(slug: string): Promise<IndexStats> {
 export function getGlobalOverview(): Promise<{ groups: Record<string, GlobalInstrument[]>; total: number }> {
   return apiFetch("/api/global/overview");
 }
+
+// ── Investors (superstar portfolios) ──
+
+export interface InvestorRow {
+  id: number;
+  trendlyne_id: number;
+  name: string;
+  slug: string;
+  categories: string[];
+  holdings_latest: number;
+  changes_latest: { new: number; exit: number; add: number; trim: number };
+}
+
+export interface InvestorChange {
+  investor_id: number;
+  investor: string;
+  categories: string[];
+  stock_name: string;
+  nse_code: string | null;
+  tracked: boolean;
+  sector: string | null;
+  kind: "new" | "exit" | "add" | "trim";
+  prev_pct: number | null;
+  cur_pct: number | null;
+  delta: number;
+}
+
+export interface MatrixCellEntry {
+  investor: string;
+  investor_id: number;
+  pct: number;
+  flag: string | null;
+  stock: string | null;
+}
+
+export interface InvestorHoldingRow {
+  stock_name: string;
+  nse_code: string | null;
+  tracked: boolean;
+  quarters: Record<string, number | null>;
+  latest_change: string | null;
+}
+
+export interface InvestorGroup {
+  id: number;
+  name: string;
+  member_ids: number[];
+}
+
+export interface GroupHoldingRow {
+  stock_name: string;
+  nse_code: string | null;
+  tracked: boolean;
+  quarters: Record<string, number>;
+  members: Record<string, Record<string, number>>;
+  holders_latest: number;
+}
+
+export function getInvestorsList(category = ""): Promise<{ investors: InvestorRow[]; quarters: string[] }> {
+  return apiFetch(`/api/investors/list?category=${category}`);
+}
+
+export function getInvestorChanges(quarter = "", kind = "", category = ""):
+  Promise<{ changes: InvestorChange[]; quarter: string | null; prior?: string; quarters: string[] }> {
+  return apiFetch(`/api/investors/changes?quarter=${quarter}&kind=${kind}&category=${category}`);
+}
+
+export function getInvestorMatrix(by: "sector" | "stock" = "sector", quartersCount = 8, category = "", minPct = 0):
+  Promise<{ rows: { row: string; cells: Record<string, MatrixCellEntry[]> }[]; quarters: string[]; by: string }> {
+  return apiFetch(`/api/investors/matrix?by=${by}&quarters_count=${quartersCount}&category=${category}&min_pct=${minPct}`);
+}
+
+export function getMissingCompanies():
+  Promise<{ missing: { stock_name: string; nse_code: string | null; holders: number; holders_latest: number; last_seen: string }[]; latest_quarter: string | null }> {
+  return apiFetch(`/api/investors/missing-companies`);
+}
+
+export function getInvestorHoldings(id: number):
+  Promise<{ investor: { investor_id: number; name: string; categories: string }; quarters: string[]; holdings: InvestorHoldingRow[] }> {
+  return apiFetch(`/api/investors/${id}/holdings`);
+}
+
+export function getInvestorGroups(): Promise<{ groups: InvestorGroup[] }> {
+  return apiFetch(`/api/investors/groups`);
+}
+
+export function createInvestorGroup(name: string, memberIds: number[]): Promise<InvestorGroup> {
+  return apiFetch(`/api/investors/groups`, { method: "POST", body: JSON.stringify({ name, member_ids: memberIds }) });
+}
+
+export function updateInvestorGroup(id: number, name: string, memberIds: number[]): Promise<InvestorGroup> {
+  return apiFetch(`/api/investors/groups/${id}`, { method: "PUT", body: JSON.stringify({ name, member_ids: memberIds }) });
+}
+
+export function deleteInvestorGroup(id: number): Promise<{ deleted: number }> {
+  return apiFetch(`/api/investors/groups/${id}`, { method: "DELETE" });
+}
+
+export function getGroupHoldings(id: number, mode: "consolidated" | "overlap" = "consolidated"):
+  Promise<{ group: string; mode: string; quarters: string[]; holdings: GroupHoldingRow[] }> {
+  return apiFetch(`/api/investors/groups/${id}/holdings?mode=${mode}`);
+}

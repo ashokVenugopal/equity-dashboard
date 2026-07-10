@@ -42,6 +42,7 @@ def sample_pipeline_db(tmp_path):
 
     _seed_risk_reward_data(conn)
     _seed_macro_data(conn)
+    _seed_investor_data(conn)
     conn.commit()
     conn.close()
     return str(db_path)
@@ -426,6 +427,30 @@ def _bootstrap_schema(conn):
             UNIQUE (event_date, category, title, source)
         );
 
+        CREATE TABLE IF NOT EXISTS investors (
+            investor_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            trendlyne_id INTEGER NOT NULL UNIQUE,
+            name TEXT NOT NULL,
+            slug TEXT NOT NULL,
+            categories TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS investor_holdings (
+            holding_id INTEGER PRIMARY KEY AUTOINCREMENT,
+            investor_id INTEGER NOT NULL,
+            trendlyne_stock_pk INTEGER NOT NULL,
+            stock_name TEXT NOT NULL,
+            nse_code TEXT,
+            company_id INTEGER,
+            quarter_end TEXT NOT NULL,
+            holding_pct REAL,
+            source TEXT NOT NULL DEFAULT 'trendlyne',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE (investor_id, trendlyne_stock_pk, quarter_end, source)
+        );
+
         -- Simplified active_classifications view (current rows only)
         CREATE VIEW IF NOT EXISTS active_classifications AS
         SELECT * FROM classifications
@@ -775,3 +800,51 @@ def _seed_macro_data(conn):
         conn.execute(
             "INSERT OR REPLACE INTO market_events (event_date, category, title, country, symbol, source) "
             "VALUES (?, ?, ?, ?, ?, 'test')", (d, cat, title, country, sym))
+
+
+def _seed_investor_data(conn):
+    """Investor-portfolio seeds exercising change classification.
+
+    Quarters: 2025-12-31, 2026-03-31, 2026-06-30 (latest).
+    Alpha Investor (individual):
+      RISKCO   1.0 → 1.5 → 2.0    (add in Jun; tracked company)
+      GHOSTCO  -   → -   → 1.2    (new in Jun; untracked)
+    Beta Fund (fii,institutional):
+      RISKCO   2.0 → 2.0 → NULL   (real exit — RISKCO filed via Alpha)
+      GHOSTCO  -   → 3.0 → 3.0    (no material change)
+      DARKCO   -   → 2.0 → NULL   (NOT an exit — no one filed DARKCO in Jun)
+    """
+    conn.execute("INSERT INTO investors (trendlyne_id, name, slug, categories) "
+                 "VALUES (900001, 'Alpha Investor', 'alpha-investor-portfolio', 'individual')")
+    alpha = conn.execute("SELECT investor_id FROM investors WHERE trendlyne_id=900001").fetchone()[0]
+    conn.execute("INSERT INTO investors (trendlyne_id, name, slug, categories) "
+                 "VALUES (900002, 'Beta Fund', 'beta-fund-portfolio', 'fii,institutional')")
+    beta = conn.execute("SELECT investor_id FROM investors WHERE trendlyne_id=900002").fetchone()[0]
+
+    riskco_company = conn.execute(
+        "SELECT company_id FROM companies WHERE symbol='RISKCO'").fetchone()[0]
+
+    rows = [
+        (alpha, 501, "Riskco", "RISKCO", riskco_company, "2025-12-31", 1.0),
+        (alpha, 501, "Riskco", "RISKCO", riskco_company, "2026-03-31", 1.5),
+        (alpha, 501, "Riskco", "RISKCO", riskco_company, "2026-06-30", 2.0),
+        (alpha, 502, "Ghost Co", "GHOSTCO", None, "2026-06-30", 1.2),
+        (beta, 501, "Riskco", "RISKCO", riskco_company, "2025-12-31", 2.0),
+        (beta, 501, "Riskco", "RISKCO", riskco_company, "2026-03-31", 2.0),
+        (beta, 501, "Riskco", "RISKCO", riskco_company, "2026-06-30", None),
+        (beta, 502, "Ghost Co", "GHOSTCO", None, "2026-03-31", 3.0),
+        (beta, 502, "Ghost Co", "GHOSTCO", None, "2026-06-30", 3.0),
+        (beta, 503, "Dark Co", "DARKCO", None, "2026-03-31", 2.0),
+        (beta, 503, "Dark Co", "DARKCO", None, "2026-06-30", None),
+    ]
+    for r in rows:
+        conn.execute(
+            "INSERT INTO investor_holdings (investor_id, trendlyne_stock_pk, stock_name, "
+            "nse_code, company_id, quarter_end, holding_pct) VALUES (?,?,?,?,?,?,?)", r)
+
+    # Sector classification for RISKCO so the matrix's by=sector view works.
+    riskco_instrument = conn.execute(
+        "SELECT instrument_id FROM instruments WHERE symbol='RISKCO'").fetchone()[0]
+    conn.execute(
+        "INSERT INTO classifications (instrument_id, classification_type, classification_name, effective_from) "
+        "VALUES (?, 'sector', 'Testing Sector', '2024-01-01')", (riskco_instrument,))

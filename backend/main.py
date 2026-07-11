@@ -56,6 +56,7 @@ from backend.api.index_detail import router as index_detail_router
 from backend.api.index_history import router as index_history_router
 from backend.api.macro import router as macro_router
 from backend.api.investors import router as investors_router
+from backend.api.prefs import router as prefs_router
 from backend.api.pine import router as pine_router
 from backend.api.export import router as export_router
 
@@ -78,6 +79,7 @@ app.include_router(index_detail_router)
 app.include_router(index_history_router)
 app.include_router(macro_router)
 app.include_router(investors_router)
+app.include_router(prefs_router)
 
 logger.info("Equity Dashboard API initialized. Routes: %d", len(app.routes))
 

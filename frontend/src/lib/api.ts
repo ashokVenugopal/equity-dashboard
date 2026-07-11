@@ -670,6 +670,16 @@ export function getCoInvestMatrix(quarter = "", category = "", minOverlap = 2, t
   return apiFetch(`/api/investors/co-invest?quarter=${quarter}&category=${category}&min_overlap=${minOverlap}&top=${top}&min_pct=${minPct}`);
 }
 
+// ── User preferences (server-side key/value, survives devices) ──
+
+export function getPref(key: string): Promise<{ key: string; value: string | null }> {
+  return apiFetch(`/api/prefs/${key}`);
+}
+
+export function setPref(key: string, value: string): Promise<{ key: string; value: string }> {
+  return apiFetch(`/api/prefs/${key}`, { method: "PUT", body: JSON.stringify({ value }) });
+}
+
 export function getInvestorGroups(): Promise<{ groups: InvestorGroup[] }> {
   return apiFetch(`/api/investors/groups`);
 }

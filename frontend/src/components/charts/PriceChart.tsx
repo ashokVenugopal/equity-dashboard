@@ -15,7 +15,7 @@ import {
 } from "lightweight-charts";
 import { OHLCVTooltip } from "./ChartTooltip";
 import { loadState, saveState } from "@/lib/persist";
-import type { PriceBar, VolumeProfile } from "@/lib/api";
+import { getPref, setPref, type PriceBar, type VolumeProfile } from "@/lib/api";
 
 /** Volume profile for an A→B window, rendered as horizontal bars anchored
  * at B extending left (session-profile style), plus VAH/POC/VAL lines. */
@@ -117,15 +117,26 @@ export function PriceChart({
   } | null>(null);
   const [anchors, setAnchors] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
-  // Where the profile histogram renders: painted over the candles, or in
-  // a dedicated gutter outside the price axis. Global preference.
+  // Where the profiler histogram renders: painted over the candles, or
+  // in a dedicated gutter outside the price axis. Global preference —
+  // sessionStorage for instant restore, the DB as source of truth so it
+  // follows the user across browsers/devices.
   const [placement, setPlacementRaw] = useState<"overlay" | "gutter">("overlay");
   useEffect(() => {
     setPlacementRaw(loadState<"overlay" | "gutter">("profile:placement", "overlay"));
+    getPref("volume-profiler:placement")
+      .then((d) => {
+        if (d.value === "overlay" || d.value === "gutter") {
+          setPlacementRaw(d.value);
+          saveState("profile:placement", d.value);
+        }
+      })
+      .catch(() => { /* offline/backend down — session value stands */ });
   }, []);
   const setPlacement = useCallback((p: "overlay" | "gutter") => {
     setPlacementRaw(p);
     saveState("profile:placement", p);
+    setPref("volume-profiler:placement", p).catch(() => { /* best-effort */ });
   }, []);
   const [snapGrain, setSnapGrainRaw] = useState<string | null>(null);
   const setSnapGrain = useCallback((g: string | null) => {
@@ -432,7 +443,7 @@ export function PriceChart({
   return (
     <div>
       <div className="flex items-center justify-end gap-1 mb-1 text-[10px] font-mono">
-        <span className="text-muted">profile:</span>
+        <span className="text-muted">volume profiler:</span>
         {(["overlay", "gutter"] as const).map((p) => (
           <button
             key={p}

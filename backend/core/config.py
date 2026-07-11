@@ -73,7 +73,8 @@ def get_server_config() -> dict:
     config = _load_config()
     server = config.get("server") or {}
     return {
-        "host": server.get("host", "0.0.0.0"),
+        "host": server.get("host", "127.0.0.1"),
         "port": int(server.get("port", 8000)),
         "cors_origins": server.get("cors_origins", ["http://localhost:3000"]),
+        "reload": bool(server.get("reload", False)),
     }

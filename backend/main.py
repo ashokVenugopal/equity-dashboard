@@ -34,8 +34,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=server_config["cors_origins"],
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE"],
+    allow_headers=["Content-Type"],
 )
 
 # Register routers
@@ -92,7 +92,7 @@ def main():
         "backend.main:app",
         host=config["host"],
         port=config["port"],
-        reload=True,
+        reload=config["reload"],
         log_level="info",
     )
 

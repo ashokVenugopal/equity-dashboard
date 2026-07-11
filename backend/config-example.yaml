@@ -5,7 +5,11 @@ observations:
   db_path: data/observations.sqlite3
 
 server:
-  host: 0.0.0.0
+  # Loopback only — devices reach the dashboard via the Next.js
+  # frontend (port 3000), which proxies /api server-side. Never
+  # expose this port directly; front it with an authed proxy.
+  host: 127.0.0.1
+  reload: true  # dev auto-reload; set false in production
   port: 8000
   cors_origins:
     - http://localhost:3000

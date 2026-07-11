@@ -11,7 +11,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field as PydanticField
 
 from backend.core.connection import get_observations_connection
 
@@ -21,11 +21,11 @@ router = APIRouter(prefix="/api/observations", tags=["observations"])
 
 
 class ObservationCreate(BaseModel):
-    data_point_ref: str
-    data_point_type: str
+    data_point_ref: str = PydanticField(max_length=1000)
+    data_point_type: str = PydanticField(max_length=100)
     context_json: dict
-    note: str
-    tags: Optional[str] = None
+    note: str = PydanticField(max_length=20_000)
+    tags: Optional[str] = PydanticField(None, max_length=500)
 
 
 @router.post("")

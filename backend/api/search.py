@@ -11,7 +11,7 @@ import time
 from typing import Optional
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field as PydanticField
 
 from backend.core.connection import get_pipeline_connection
 
@@ -145,8 +145,8 @@ def search_companies(
 
 
 class FilterRequest(BaseModel):
-    expression: str
-    limit: int = 50
+    expression: str = PydanticField(max_length=2000)
+    limit: int = PydanticField(50, ge=1, le=500)
 
 
 @router.post("/filter")

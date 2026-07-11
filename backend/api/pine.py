@@ -7,7 +7,7 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from backend.core.connection import get_pipeline_connection
 from backend.pine.lexer import tokenize
@@ -23,7 +23,7 @@ router = APIRouter(prefix="/api/pine", tags=["pine"])
 class PineExecuteRequest(BaseModel):
     script: str
     symbol: str
-    limit: int = 365
+    limit: int = Field(365, ge=1, le=2000)
 
 
 @router.post("/execute")

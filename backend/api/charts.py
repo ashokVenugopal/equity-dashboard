@@ -5,6 +5,7 @@ Generates standalone HTML files containing TradingView lightweight-charts
 with embedded data. These HTML files can be opened independently or
 embedded in Streamlit via st.components.html().
 """
+import html as _html
 import json
 import logging
 import time
@@ -158,12 +159,16 @@ def export_chart(
                 color = "#00c85340" if r["close"] >= r["open"] else "#ff525240"
                 volume_data.append({"time": r["trade_date"], "value": r["volume"], "color": color})
 
-        data_json = json.dumps({"candles": candles, "volume": volume_data})
-        inst_name = instrument["name"]
+        # Escape </script> breakouts in embedded JSON and HTML-escape the
+        # scraped instrument name — it becomes live HTML in the export.
+        data_json = json.dumps(
+            {"candles": candles, "volume": volume_data}).replace("<", "\\u003c")
+        inst_name = _html.escape(instrument["name"] or "")
+        safe_symbol = _html.escape(symbol.upper())
 
         html = _CHART_HTML_TEMPLATE.format(
-            title=f"{symbol.upper()} - {inst_name}",
-            symbol=symbol.upper(),
+            title=f"{safe_symbol} - {inst_name}",
+            symbol=safe_symbol,
             subtitle=inst_name,
             data_json=data_json,
             height=height,

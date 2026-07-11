@@ -1,4 +1,0 @@
-
-# Security floors (pip-audit, Jul 2026)
-starlette>=1.3.1
-idna>=3.15

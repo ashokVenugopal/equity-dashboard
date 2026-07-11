@@ -37,9 +37,60 @@ interface PriceChartProps {
   persistKey?: string;
 }
 
-const VA_FILL = "rgba(33, 150, 243, 0.38)";     // value-area bins
-const OUT_FILL = "rgba(141, 163, 90, 0.30)";    // outside value area
+const VA_FILL = "rgba(33, 150, 243, 0.45)";     // value-area bins
+const OUT_FILL = "rgba(141, 163, 90, 0.35)";    // outside value area
+const POC_FILL = "rgba(232, 228, 220, 0.60)";   // highest-volume bin
 const LINE_COLORS = { vah: "#FFD700", poc: "#e8e4dc", val: "#26A69A" };
+
+const fmtVol = new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 });
+
+/** Large readable rendering of the measured window's profile — every
+ * bin at fixed height with price labels, for close inspection. */
+function ExpandedProfile({ profile, onClose }: { profile: ChartProfile; onClose: () => void }) {
+  const bins = [...(profile.bins ?? [])].reverse();  // highest price on top
+  const maxVol = Math.max(...bins.map((b) => b.volume), 1);
+  const total = bins.reduce((s, b) => s + b.volume, 0);
+  return (
+    <div className="border border-border rounded bg-surface p-3 mt-2">
+      <div className="flex items-center gap-3 text-[10px] font-mono mb-2">
+        <span className="text-accent">volume profile — {profile.from} → {profile.to}</span>
+        <span className="text-[#FFD700]">VAH {profile.vah}</span>
+        <span className="text-foreground">POC {profile.poc}</span>
+        <span className="text-[#26A69A]">VAL {profile.val}</span>
+        <span className="text-muted">Σ vol {fmtVol.format(total)}</span>
+        <button className="border border-border rounded px-1.5 text-muted hover:text-negative ml-auto"
+                onClick={onClose}>
+          close
+        </button>
+      </div>
+      <div>
+        {bins.map((b, i) => {
+          const isPoc = b.volume === maxVol;
+          return (
+            <div key={i} className="flex items-center gap-2" style={{ height: 9 }}
+                 title={`${b.price_low.toFixed(1)} – ${b.price_high.toFixed(1)} · vol ${fmtVol.format(b.volume)}${isPoc ? " · POC" : ""}`}>
+              <span className="w-16 shrink-0 text-right text-[8px] text-muted font-mono leading-none">
+                {i % 5 === 0 ? b.price_high.toFixed(0) : ""}
+              </span>
+              <div className="flex-1" style={{ height: 8 }}>
+                <div className="h-full rounded-r-[1px]" style={{
+                  width: `${Math.max((b.volume / maxVol) * 100, b.volume ? 0.5 : 0)}%`,
+                  backgroundColor: isPoc ? POC_FILL : b.in_va ? VA_FILL : OUT_FILL,
+                }} />
+              </div>
+              <span className="w-14 shrink-0 text-[8px] text-muted/70 font-mono leading-none">
+                {isPoc ? `POC ${fmtVol.format(b.volume)}` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+      <p className="text-[9px] text-muted mt-2">
+        profile from daily bars (approximation, not intraday volume-at-price) · hover a bar for its price band
+      </p>
+    </div>
+  );
+}
 
 /** Snap-mode grains: fixed lookback window in days, anchored at the
  * latest bar. Daily bars, so 1D is not offered. */
@@ -64,6 +115,7 @@ export function PriceChart({
     volumeSeries: ISeriesApi<"Histogram"> | null;
   } | null>(null);
   const [anchors, setAnchors] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState(false);
   const [snapGrain, setSnapGrainRaw] = useState<string | null>(null);
   const setSnapGrain = useCallback((g: string | null) => {
     setSnapGrainRaw(g);
@@ -96,25 +148,51 @@ export function PriceChart({
     if (!p || !p.available || !p.bins?.length) return;
 
     const ts = chart.timeScale();
-    const xFrom = ts.timeToCoordinate(p.from as Time);
     const xTo = ts.timeToCoordinate(p.to as Time);
-    if (xFrom == null && xTo == null) return;  // window fully off-screen
+    // If the measured window is off-screen (e.g. snapped to a recent
+    // range), keep the profile visible anchored at the right edge — its
+    // price levels still matter against the current price.
     const xR = xTo ?? w;
     // Bar length is a fraction of the canvas, not of the A-B span — a
     // narrow window still gets a readable histogram.
     const maxLen = Math.max(70, Math.min(w * 0.22, 260));
-    const maxVol = Math.max(...p.bins.map((b) => b.volume), 1);
 
-    for (const bin of p.bins) {
+    // Adaptive re-binning: merge adjacent bins until each bar is >= ~5px
+    // tall at the current zoom, so a narrow A-B price range doesn't
+    // collapse into sub-pixel slivers.
+    let bins = p.bins;
+    const yHi = cs.priceToCoordinate(bins[bins.length - 1].price_high);
+    const yLo = cs.priceToCoordinate(bins[0].price_low);
+    if (yHi != null && yLo != null) {
+      const pxPerBin = Math.abs(yLo - yHi) / bins.length;
+      const factor = Math.max(1, Math.ceil(5 / Math.max(pxPerBin, 0.01)));
+      if (factor > 1) {
+        const merged: typeof bins = [];
+        for (let i = 0; i < bins.length; i += factor) {
+          const chunk = bins.slice(i, i + factor);
+          merged.push({
+            price_low: chunk[0].price_low,
+            price_high: chunk[chunk.length - 1].price_high,
+            volume: chunk.reduce((s, b) => s + b.volume, 0),
+            in_va: chunk.some((b) => b.in_va),
+          });
+        }
+        bins = merged;
+      }
+    }
+    const maxVol = Math.max(...bins.map((b) => b.volume), 1);
+
+    for (const bin of bins) {
       if (!bin.volume) continue;
       const yTop = cs.priceToCoordinate(bin.price_high);
       const yBot = cs.priceToCoordinate(bin.price_low);
       if (yTop == null || yBot == null) continue;
       const len = (bin.volume / maxVol) * maxLen;
-      ctx.fillStyle = bin.in_va ? VA_FILL : OUT_FILL;
-      // Right-anchored at B, growing left — mirrors the classic
-      // session-profile rendering.
-      ctx.fillRect(xR - len, yTop, len, Math.max(1, yBot - yTop - 0.5));
+      ctx.fillStyle = bin.volume === maxVol ? POC_FILL
+        : bin.in_va ? VA_FILL : OUT_FILL;
+      // Right-anchored, growing left — classic session-profile rendering,
+      // with a 1px gap between bars for definition.
+      ctx.fillRect(xR - len, yTop, len, Math.max(1, yBot - yTop - 1));
     }
   }, [chartState]);
 
@@ -353,10 +431,16 @@ export function PriceChart({
                 clear A/B
               </button>
               {profile?.available && (
-                <span>
-                  VAH {profile.vah} · POC {profile.poc} · VAL {profile.val} — profile from
-                  daily bars (approximation, not intraday volume-at-price)
-                </span>
+                <>
+                  <button className="border border-border rounded px-1.5 hover:text-accent"
+                          onClick={() => setExpanded((e) => !e)}>
+                    {expanded ? "collapse profile" : "expand profile"}
+                  </button>
+                  <span>
+                    VAH {profile.vah} · POC {profile.poc} · VAL {profile.val} — profile from
+                    daily bars (approximation, not intraday volume-at-price)
+                  </span>
+                </>
               )}
               {profile && !profile.available && (
                 <span className="text-negative/80">{profile.reason}</span>
@@ -365,6 +449,9 @@ export function PriceChart({
           )}
         </div>
       )}
+      {expanded && profile?.available && profile.bins?.length ? (
+        <ExpandedProfile profile={profile} onClose={() => setExpanded(false)} />
+      ) : null}
     </div>
   );
 }

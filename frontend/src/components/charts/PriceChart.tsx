@@ -131,13 +131,19 @@ export function PriceChart({
   const activeLevelsRef = useRef<ReturnType<ISeriesApi<"Candlestick">["createPriceLine"]>[]>([]);
   const profileRef = useRef<ChartProfile | null>(profile);
   profileRef.current = profile;
+  // Charts already torn down. Effects can fire once more with a stale
+  // chartState after data changes — calling into a removed chart throws
+  // "Object is disposed", so every imperative call checks this first.
+  const deadChartsRef = useRef(new WeakSet<IChartApi>());
+  const isDead = useCallback(
+    (c: IChartApi | undefined | null) => !c || deadChartsRef.current.has(c), []);
 
   /** Paint the volume-profile histogram onto the overlay canvas. */
   const drawProfile = useCallback(() => {
     const canvas = overlayRef.current;
     const cs = chartState?.candleSeries;
     const chart = chartState?.chart;
-    if (!canvas || !cs || !chart) return;
+    if (!canvas || !cs || !chart || isDead(chart)) return;
     const p = profileRef.current;
     const dpr = window.devicePixelRatio || 1;
     const w = canvas.clientWidth;
@@ -211,7 +217,7 @@ export function PriceChart({
       // with a 1px gap between bars for definition.
       ctx.fillRect(xR - len - 2, yTop, len, Math.max(1, yBot - yTop - 1));
     }
-  }, [chartState]);
+  }, [chartState, isDead]);
 
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return;
@@ -307,6 +313,7 @@ export function PriceChart({
       setChartState(null);
       markersApiRef.current = null;
       activeLevelsRef.current = [];
+      deadChartsRef.current.add(chart);
       chart.remove();
     };
   }, [data, height, showVolume, persistKey]);
@@ -315,23 +322,25 @@ export function PriceChart({
   // latest bar, and freeze scroll/scale so screenshots are repeatable.
   useEffect(() => {
     const chart = chartState?.chart;
-    if (!chart || data.length === 0) return;
+    if (!chart || isDead(chart) || data.length === 0) return;
     const grain = SNAP_GRAINS.find((g) => g.label === snapGrain);
-    if (grain) {
-      const to = data[data.length - 1].trade_date;
-      const fromDate = new Date(to);
-      fromDate.setDate(fromDate.getDate() - grain.days);
-      const firstBar = data[0].trade_date;
-      const from = fromDate.toISOString().slice(0, 10);
-      chart.applyOptions({ handleScroll: false, handleScale: false });
-      chart.timeScale().setVisibleRange({
-        from: (from < firstBar ? firstBar : from) as Time,
-        to: to as Time,
-      });
-    } else {
-      chart.applyOptions({ handleScroll: true, handleScale: true });
-    }
-  }, [snapGrain, chartState, data]);
+    try {
+      if (grain) {
+        const to = data[data.length - 1].trade_date;
+        const fromDate = new Date(to);
+        fromDate.setDate(fromDate.getDate() - grain.days);
+        const firstBar = data[0].trade_date;
+        const from = fromDate.toISOString().slice(0, 10);
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        chart.timeScale().setVisibleRange({
+          from: (from < firstBar ? firstBar : from) as Time,
+          to: to as Time,
+        });
+      } else {
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+      }
+    } catch { /* chart disposed mid-effect — next chartState re-applies */ }
+  }, [snapGrain, chartState, data, isDead]);
 
   // A/B markers + parent notification
   useEffect(() => {
@@ -345,7 +354,7 @@ export function PriceChart({
         shape: "arrowDown",
         text: i === 0 ? "A" : "B",
       }));
-      markersApi.setMarkers(markers);
+      try { markersApi.setMarkers(markers); } catch { /* chart disposed */ }
     }
     if (persistKey) saveState(`ab:${persistKey}`, anchors);
     if (onMeasureChange) {
@@ -362,7 +371,7 @@ export function PriceChart({
   useEffect(() => {
     const cs = chartState?.candleSeries;
     const chart = chartState?.chart;
-    if (!cs || !chart) return;
+    if (!cs || !chart || isDead(chart)) return;
     for (const handle of activeLevelsRef.current) {
       try { cs.removePriceLine(handle); } catch { /* chart may be gone */ }
     }
@@ -373,12 +382,14 @@ export function PriceChart({
         [profile.poc!, `POC ${profile.poc}`, LINE_COLORS.poc],
         [profile.val!, `VAL ${profile.val}`, LINE_COLORS.val],
       ];
-      for (const [price, title, color] of lines) {
-        activeLevelsRef.current.push(cs.createPriceLine({
-          price, color, lineWidth: 1, lineStyle: 2,
-          axisLabelVisible: true, title,
-        }));
-      }
+      try {
+        for (const [price, title, color] of lines) {
+          activeLevelsRef.current.push(cs.createPriceLine({
+            price, color, lineWidth: 1, lineStyle: 2,
+            axisLabelVisible: true, title,
+          }));
+        }
+      } catch { /* chart disposed mid-effect */ }
     }
     drawProfile();
     const ts = chart.timeScale();
@@ -389,7 +400,7 @@ export function PriceChart({
       try { ts.unsubscribeVisibleTimeRangeChange(onRange); } catch { /* chart gone */ }
       window.removeEventListener("resize", onRange);
     };
-  }, [profile, chartState, drawProfile]);
+  }, [profile, chartState, drawProfile, isDead]);
 
   if (data.length === 0) {
     return <div className="text-muted text-xs text-center py-8">No price data available</div>;

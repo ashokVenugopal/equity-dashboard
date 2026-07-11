@@ -41,8 +41,12 @@ def _oconn():
 
 
 def _quarters(conn, limit: int = 12) -> List[str]:
+    # The Trendlyne history backfill also captures intra-quarter
+    # disclosure months (Nov, Feb, …); only standard fiscal quarter ends
+    # are meaningful as comparison columns.
     return [r["quarter_end"] for r in conn.execute(
         "SELECT DISTINCT quarter_end FROM investor_holdings "
+        "WHERE strftime('%m', quarter_end) IN ('03','06','09','12') "
         "ORDER BY quarter_end DESC LIMIT ?", (limit,))]
 
 
@@ -417,30 +421,48 @@ def investor_holdings(investor_id: int):
             "WHERE investor_id = ?", (investor_id,)).fetchone()
         if not inv:
             raise HTTPException(status_code=404, detail="Investor not found")
-        quarters = _quarters(conn)
+        # Full history — the deep backfill goes to Dec 2015 (~43 quarters)
+        quarters = _quarters(conn, 60)
         rows = conn.execute("""
             SELECT trendlyne_stock_pk, stock_name, nse_code, company_id,
                    quarter_end, holding_pct
             FROM investor_holdings WHERE investor_id = ?
             ORDER BY stock_name, quarter_end DESC
         """, (investor_id,)).fetchall()
+        # Per-stock filing gate (see investors_list): a >0 → NULL flip in
+        # the latest quarter is only an exit if that stock's data has
+        # been published this quarter by ANY investor.
+        stock_filed = set()
+        if quarters:
+            stock_filed = {r["trendlyne_stock_pk"] for r in conn.execute(
+                "SELECT DISTINCT trendlyne_stock_pk FROM investor_holdings "
+                "WHERE quarter_end = ? AND holding_pct > 0", (quarters[0],))}
         stocks: dict = {}
         for r in rows:
             s = stocks.setdefault(r["trendlyne_stock_pk"], {
                 "stock_name": r["stock_name"], "nse_code": r["nse_code"],
                 "tracked": r["company_id"] is not None, "quarters": {},
+                "_pk": r["trendlyne_stock_pk"],
             })
             s["quarters"][r["quarter_end"]] = r["holding_pct"]
         # Latest-quarter change flag per stock
         out = []
         for s in stocks.values():
+            pk = s.pop("_pk")
             if len(quarters) >= 2:
-                s["latest_change"] = classify_change(
+                flag = classify_change(
                     s["quarters"].get(quarters[1]), s["quarters"].get(quarters[0]))
+                if flag == "exit" and pk not in stock_filed:
+                    flag = None
+                s["latest_change"] = flag
             else:
                 s["latest_change"] = None
             out.append(s)
-        out.sort(key=lambda s: (s["quarters"].get(quarters[0]) or 0), reverse=True)
+        # Sort by most recent disclosed pct — the latest quarter is often
+        # only partially filed, which would otherwise scramble the order.
+        out.sort(key=lambda s: next(
+            (s["quarters"][q] for q in quarters if s["quarters"].get(q)), 0),
+            reverse=True)
         logger.info("GET /api/investors/%d/holdings — %d stocks, %.3fs",
                     investor_id, len(out), time.time() - t0)
         return {"investor": dict(inv), "quarters": quarters, "holdings": out}

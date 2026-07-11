@@ -72,6 +72,20 @@ def test_investor_drilldown(test_client):
     assert stocks["Riskco"]["latest_change"] == "add"
     assert stocks["Ghost Co"]["latest_change"] == "new"
     assert stocks["Ghost Co"]["tracked"] is False
+    # Intra-quarter disclosure months (e.g. Jan) are kept in the data
+    # but must not appear as comparison columns.
+    assert "2026-01-31" not in d["quarters"]
+
+
+def test_drilldown_exit_gate(test_client):
+    """DARKCO wasn't filed by anyone in the latest quarter — Beta's
+    >0 → NULL flip must not show as an exit in the drill-down."""
+    lst = test_client.get("/api/investors/list").json()["investors"]
+    beta_id = next(i["id"] for i in lst if i["name"] == "Beta Fund")
+    d = test_client.get(f"/api/investors/{beta_id}/holdings").json()
+    stocks = {h["stock_name"]: h for h in d["holdings"]}
+    assert stocks["Dark Co"]["latest_change"] is None
+    assert stocks["Riskco"]["latest_change"] == "exit"  # RISKCO filed via Alpha
 
 
 def test_investor_drilldown_404(test_client):

@@ -138,6 +138,7 @@ export function CompanyPageClient({ meta, financials, prices, riskReward }: Comp
           height={350}
           profile={profile}
           onMeasureChange={onMeasureChange}
+          persistKey={meta.symbol}
         />
       </section>
     </div>

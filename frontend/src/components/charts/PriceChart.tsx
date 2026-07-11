@@ -14,6 +14,7 @@ import {
   createSeriesMarkers,
 } from "lightweight-charts";
 import { OHLCVTooltip } from "./ChartTooltip";
+import { loadState, saveState } from "@/lib/persist";
 import type { PriceBar, VolumeProfile } from "@/lib/api";
 
 /** Volume profile for an A→B window, rendered as horizontal bars anchored
@@ -31,6 +32,9 @@ interface PriceChartProps {
   profile?: ChartProfile | null;
   /** Two-click measurement: called with (from, to) when both anchors set. */
   onMeasureChange?: (from: string | null, to: string | null) => void;
+  /** When set, A/B anchors and snap grain survive navigation
+   * (sessionStorage under this key, e.g. the symbol/slug). */
+  persistKey?: string;
 }
 
 const VA_FILL = "rgba(33, 150, 243, 0.38)";     // value-area bins
@@ -49,7 +53,7 @@ const SNAP_GRAINS: { label: string; days: number }[] = [
 
 export function PriceChart({
   data, height = 350, showVolume = true,
-  profile = null, onMeasureChange,
+  profile = null, onMeasureChange, persistKey,
 }: PriceChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -60,7 +64,14 @@ export function PriceChart({
     volumeSeries: ISeriesApi<"Histogram"> | null;
   } | null>(null);
   const [anchors, setAnchors] = useState<string[]>([]);
-  const [snapGrain, setSnapGrain] = useState<string | null>(null);
+  const [snapGrain, setSnapGrainRaw] = useState<string | null>(null);
+  const setSnapGrain = useCallback((g: string | null) => {
+    setSnapGrainRaw(g);
+    if (persistKey) saveState(`snap:${persistKey}`, g);
+  }, [persistKey]);
+  useEffect(() => {
+    if (persistKey) setSnapGrainRaw(loadState<string | null>(`snap:${persistKey}`, null));
+  }, [persistKey]);
   const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
   const activeLevelsRef = useRef<ReturnType<ISeriesApi<"Candlestick">["createPriceLine"]>[]>([]);
   const profileRef = useRef<ChartProfile | null>(profile);
@@ -182,7 +193,10 @@ export function PriceChart({
       const iso = String(param.time);
       setAnchors((prev) => (prev.length >= 2 ? [iso] : [...prev, iso]));
     });
-    setAnchors([]);
+    // Restore persisted A/B anchors (dropping any outside this data set)
+    const restored = persistKey ? loadState<string[]>(`ab:${persistKey}`, []) : [];
+    const dates = new Set(data.map((d) => d.trade_date));
+    setAnchors(restored.filter((a) => dates.has(a)).slice(0, 2));
 
     setChartState({ chart, candleSeries, volumeSeries });
 
@@ -200,7 +214,7 @@ export function PriceChart({
       activeLevelsRef.current = [];
       chart.remove();
     };
-  }, [data, height, showVolume]);
+  }, [data, height, showVolume, persistKey]);
 
   // Snap mode: lock the visible range to a fixed grain anchored at the
   // latest bar, and freeze scroll/scale so screenshots are repeatable.
@@ -238,6 +252,7 @@ export function PriceChart({
       }));
       markersApi.setMarkers(markers);
     }
+    if (persistKey) saveState(`ab:${persistKey}`, anchors);
     if (onMeasureChange) {
       if (anchors.length < 2) onMeasureChange(anchors[0] ?? null, null);
       else {

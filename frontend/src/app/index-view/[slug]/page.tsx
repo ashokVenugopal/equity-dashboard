@@ -181,6 +181,7 @@ export default function IndexViewPage() {
           height={250}
           profile={profile}
           onMeasureChange={onMeasureChange}
+          persistKey={slug}
         />
       )}
 

@@ -23,6 +23,7 @@ import {
   type MatrixCellEntry,
 } from "@/lib/api";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { usePersistentState } from "@/lib/persist";
 
 /*
  * Investors page — superstar-shareholder portfolios (Trendlyne, quarterly):
@@ -61,8 +62,8 @@ function KindBadge({ kind }: { kind: string | null }) {
 }
 
 export default function InvestorsPage() {
-  const [view, setView] = useState<View>("investors");
-  const [category, setCategory] = useState("");
+  const [view, setView] = usePersistentState<View>("inv:view", "investors");
+  const [category, setCategory] = usePersistentState("inv:category", "");
   const [loading, setLoading] = useState(false);
 
   return (
@@ -109,8 +110,8 @@ export default function InvestorsPage() {
 
 function InvestorsView({ category, setLoading }: { category: string; setLoading: (b: boolean) => void }) {
   const [investors, setInvestors] = useState<InvestorRow[]>([]);
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<InvestorRow | null>(null);
+  const [search, setSearch] = usePersistentState("inv:search", "");
+  const [selected, setSelected] = usePersistentState<InvestorRow | null>("inv:selected", null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -241,8 +242,8 @@ function InvestorDrilldown({ investor, onBack }: { investor: InvestorRow; onBack
 // ── Changes ─────────────────────────────────────────────────────────────
 
 function ChangesView({ category, setLoading }: { category: string; setLoading: (b: boolean) => void }) {
-  const [kind, setKind] = useState("");
-  const [quarter, setQuarter] = useState("");
+  const [kind, setKind] = usePersistentState("inv:changes:kind", "");
+  const [quarter, setQuarter] = usePersistentState("inv:changes:quarter", "");
   const [data, setData] = useState<{ changes: InvestorChange[]; quarter: string | null; quarters: string[] } | null>(null);
 
   useEffect(() => {
@@ -319,8 +320,8 @@ function ChangesView({ category, setLoading }: { category: string; setLoading: (
 // ── Matrix (radar) ──────────────────────────────────────────────────────
 
 function MatrixView({ category, setLoading }: { category: string; setLoading: (b: boolean) => void }) {
-  const [by, setBy] = useState<"sector" | "stock">("sector");
-  const [minPct, setMinPct] = useState(1.0);
+  const [by, setBy] = usePersistentState<"sector" | "stock">("inv:matrix:by", "sector");
+  const [minPct, setMinPct] = usePersistentState("inv:matrix:minpct", 1.0);
   const [data, setData] = useState<{ rows: { row: string; cells: Record<string, MatrixCellEntry[]> }[]; quarters: string[] } | null>(null);
 
   useEffect(() => {
@@ -420,9 +421,9 @@ function MatrixView({ category, setLoading }: { category: string; setLoading: (b
 // ── Co-invest (investor × investor overlap heatmap) ─────────────────────
 
 function CoInvestView({ category, setLoading }: { category: string; setLoading: (b: boolean) => void }) {
-  const [minOverlap, setMinOverlap] = useState(3);
-  const [top, setTop] = useState(30);
-  const [quarter, setQuarter] = useState("");
+  const [minOverlap, setMinOverlap] = usePersistentState("inv:coinvest:min", 3);
+  const [top, setTop] = usePersistentState("inv:coinvest:top", 30);
+  const [quarter, setQuarter] = usePersistentState("inv:coinvest:quarter", "");
   const [data, setData] = useState<{
     investors: CoInvestor[]; pairs: CoInvestPair[];
     quarter: string | null; quarters: string[]; total_investors: number;
@@ -582,8 +583,8 @@ function CoInvestView({ category, setLoading }: { category: string; setLoading: 
 function GroupsView({ setLoading }: { setLoading: (b: boolean) => void }) {
   const [groups, setGroups] = useState<InvestorGroup[]>([]);
   const [investors, setInvestors] = useState<InvestorRow[]>([]);
-  const [selected, setSelected] = useState<InvestorGroup | null>(null);
-  const [mode, setMode] = useState<"consolidated" | "overlap">("consolidated");
+  const [selected, setSelected] = usePersistentState<InvestorGroup | null>("inv:group:selected", null);
+  const [mode, setMode] = usePersistentState<"consolidated" | "overlap">("inv:group:mode", "consolidated");
   const [holdings, setHoldings] = useState<{ quarters: string[]; holdings: GroupHoldingRow[] } | null>(null);
   const [editName, setEditName] = useState("");
   const [editMembers, setEditMembers] = useState<number[]>([]);

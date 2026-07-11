@@ -839,6 +839,9 @@ def _seed_investor_data(conn):
         (beta, 502, "Ghost Co", "GHOSTCO", None, "2026-06-30", 3.0),
         (beta, 503, "Dark Co", "DARKCO", None, "2026-03-31", 2.0),
         (beta, 503, "Dark Co", "DARKCO", None, "2026-06-30", None),
+        # Intra-quarter disclosure month (from the history backfill) —
+        # must NOT appear as a comparison column anywhere.
+        (alpha, 501, "Riskco", "RISKCO", riskco_company, "2026-01-31", 1.3),
     ]
     for r in rows:
         conn.execute(

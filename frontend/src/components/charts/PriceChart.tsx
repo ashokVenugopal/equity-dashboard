@@ -37,9 +37,12 @@ interface PriceChartProps {
   persistKey?: string;
 }
 
-const VA_FILL = "rgba(33, 150, 243, 0.45)";     // value-area bins
-const OUT_FILL = "rgba(141, 163, 90, 0.35)";    // outside value area
-const POC_FILL = "rgba(232, 228, 220, 0.60)";   // highest-volume bin
+// Near-solid bar fills — they sit on a dimmed backdrop, not raw candles
+const VA_FILL = "rgba(33, 150, 243, 0.80)";     // value-area bins
+const OUT_FILL = "rgba(141, 163, 90, 0.65)";    // outside value area
+const POC_FILL = "rgba(232, 228, 220, 0.90)";   // highest-volume bin
+const BACKDROP_FILL = "rgba(8, 8, 8, 0.78)";    // dims candles behind the histogram
+const BACKDROP_EDGE = "rgba(232, 228, 220, 0.14)";
 const LINE_COLORS = { vah: "#FFD700", poc: "#e8e4dc", val: "#26A69A" };
 
 const fmtVol = new Intl.NumberFormat("en-IN", { notation: "compact", maximumFractionDigits: 1 });
@@ -182,6 +185,20 @@ export function PriceChart({
     }
     const maxVol = Math.max(...bins.map((b) => b.volume), 1);
 
+    // Dimmed backdrop behind the histogram — near-solid bars over raw
+    // candles smear into the noise; over a dark panel they read cleanly.
+    const yPanelTop = cs.priceToCoordinate(bins[bins.length - 1].price_high);
+    const yPanelBot = cs.priceToCoordinate(bins[0].price_low);
+    if (yPanelTop != null && yPanelBot != null) {
+      const by = Math.max(0, Math.min(yPanelTop, yPanelBot) - 4);
+      const bh = Math.min(h, Math.max(yPanelTop, yPanelBot) + 4) - by;
+      const bx = xR - maxLen - 8;
+      ctx.fillStyle = BACKDROP_FILL;
+      ctx.fillRect(bx, by, maxLen + 12, bh);
+      ctx.strokeStyle = BACKDROP_EDGE;
+      ctx.strokeRect(bx + 0.5, by + 0.5, maxLen + 11, bh - 1);
+    }
+
     for (const bin of bins) {
       if (!bin.volume) continue;
       const yTop = cs.priceToCoordinate(bin.price_high);
@@ -192,7 +209,7 @@ export function PriceChart({
         : bin.in_va ? VA_FILL : OUT_FILL;
       // Right-anchored, growing left — classic session-profile rendering,
       // with a 1px gap between bars for definition.
-      ctx.fillRect(xR - len, yTop, len, Math.max(1, yBot - yTop - 1));
+      ctx.fillRect(xR - len - 2, yTop, len, Math.max(1, yBot - yTop - 1));
     }
   }, [chartState]);
 

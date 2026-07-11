@@ -109,6 +109,7 @@ export function PriceChart({
   const containerRef = useRef<HTMLDivElement>(null);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const gutterRef = useRef<HTMLCanvasElement>(null);
   const [chartState, setChartState] = useState<{
     chart: IChartApi;
     candleSeries: ISeriesApi<"Candlestick">;
@@ -116,6 +117,16 @@ export function PriceChart({
   } | null>(null);
   const [anchors, setAnchors] = useState<string[]>([]);
   const [expanded, setExpanded] = useState(false);
+  // Where the profile histogram renders: painted over the candles, or in
+  // a dedicated gutter outside the price axis. Global preference.
+  const [placement, setPlacementRaw] = useState<"overlay" | "gutter">("overlay");
+  useEffect(() => {
+    setPlacementRaw(loadState<"overlay" | "gutter">("profile:placement", "overlay"));
+  }, []);
+  const setPlacement = useCallback((p: "overlay" | "gutter") => {
+    setPlacementRaw(p);
+    saveState("profile:placement", p);
+  }, []);
   const [snapGrain, setSnapGrainRaw] = useState<string | null>(null);
   const setSnapGrain = useCallback((g: string | null) => {
     setSnapGrainRaw(g);
@@ -135,33 +146,46 @@ export function PriceChart({
   const isDead = useCallback(
     (c: IChartApi | undefined | null) => !c || deadChartsRef.current.has(c), []);
 
-  /** Paint the volume-profile histogram onto the overlay canvas. */
+  /** Paint the volume-profile histogram — over the candles, or into the
+   * axis-side gutter, per the placement toggle. */
   const drawProfile = useCallback(() => {
-    const canvas = overlayRef.current;
     const cs = chartState?.candleSeries;
     const chart = chartState?.chart;
-    if (!canvas || !cs || !chart || isDead(chart)) return;
+    if (!cs || !chart || isDead(chart)) return;
     const p = profileRef.current;
     const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth;
-    const h = canvas.clientHeight;
-    canvas.width = w * dpr;
-    canvas.height = h * dpr;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+
+    // Size + clear both canvases (only one gets painted)
+    const surfaces: Record<string, CanvasRenderingContext2D | null> = {};
+    for (const [name, el] of [["overlay", overlayRef.current],
+                              ["gutter", gutterRef.current]] as const) {
+      if (!el) { surfaces[name] = null; continue; }
+      el.width = el.clientWidth * dpr;
+      el.height = el.clientHeight * dpr;
+      const c = el.getContext("2d");
+      if (c) {
+        c.setTransform(dpr, 0, 0, dpr, 0, 0);
+        c.clearRect(0, 0, el.clientWidth, el.clientHeight);
+      }
+      surfaces[name] = c;
+    }
     if (!p || !p.available || !p.bins?.length) return;
+    const inGutter = placement === "gutter";
+    const canvas = inGutter ? gutterRef.current : overlayRef.current;
+    const ctx = inGutter ? surfaces.gutter : surfaces.overlay;
+    if (!canvas || !ctx) return;
+    const w = canvas.clientWidth;
 
     const ts = chart.timeScale();
     const xTo = ts.timeToCoordinate(p.to as Time);
-    // If the measured window is off-screen (e.g. snapped to a recent
-    // range), keep the profile visible anchored at the right edge — its
-    // price levels still matter against the current price.
-    const xR = xTo ?? w;
+    // Overlay mode: right-anchored at B; if the measured window is
+    // off-screen (e.g. snapped to a recent range) anchor at the right
+    // edge — the price levels still matter against the current price.
+    // Gutter mode: bars grow rightward from the axis.
+    const xR = inGutter ? 0 : (xTo ?? w);
     // Bar length is a fraction of the canvas, not of the A-B span — a
     // narrow window still gets a readable histogram.
-    const maxLen = Math.max(70, Math.min(w * 0.22, 260));
+    const maxLen = inGutter ? w - 6 : Math.max(70, Math.min(w * 0.22, 260));
 
     // Adaptive re-binning: merge adjacent bins until each bar is >= ~5px
     // tall at the current zoom, so a narrow A-B price range doesn't
@@ -196,11 +220,12 @@ export function PriceChart({
       const len = (bin.volume / maxVol) * maxLen;
       ctx.fillStyle = bin.volume === maxVol ? POC_FILL
         : bin.in_va ? VA_FILL : OUT_FILL;
-      // Right-anchored, growing left — classic session-profile rendering,
-      // with a 1px gap between bars for definition.
-      ctx.fillRect(xR - len, yTop, len, Math.max(1, yBot - yTop - 1));
+      // 1px gap between bars for definition. Overlay: right-anchored,
+      // growing left (classic session profile). Gutter: growing right.
+      ctx.fillRect(inGutter ? 2 : xR - len, yTop, len,
+                   Math.max(1, yBot - yTop - 1));
     }
-  }, [chartState, isDead]);
+  }, [chartState, isDead, placement]);
 
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return;
@@ -325,6 +350,21 @@ export function PriceChart({
     } catch { /* chart disposed mid-effect — next chartState re-applies */ }
   }, [snapGrain, chartState, data, isDead]);
 
+  // The gutter changes the chart container's width — re-fit after layout
+  useEffect(() => {
+    const chart = chartState?.chart;
+    if (!chart || isDead(chart)) return;
+    const id = requestAnimationFrame(() => {
+      try {
+        if (containerRef.current) {
+          chart.applyOptions({ width: containerRef.current.clientWidth });
+        }
+        drawProfile();
+      } catch { /* chart disposed */ }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [placement, chartState, isDead, drawProfile]);
+
   // A/B markers + parent notification
   useEffect(() => {
     const markersApi = markersApiRef.current;
@@ -392,6 +432,19 @@ export function PriceChart({
   return (
     <div>
       <div className="flex items-center justify-end gap-1 mb-1 text-[10px] font-mono">
+        <span className="text-muted">profile:</span>
+        {(["overlay", "gutter"] as const).map((p) => (
+          <button
+            key={p}
+            className={`border rounded px-1.5 py-0.5 ${
+              placement === p ? "border-accent text-accent" : "border-border text-muted hover:text-foreground"
+            }`}
+            onClick={() => setPlacement(p)}
+          >
+            {p === "overlay" ? "on-chart" : "axis-side"}
+          </button>
+        ))}
+        <span className="text-muted ml-2" />
         <span className={snapGrain ? "text-accent" : "text-muted"}>
           snap{snapGrain ? " · range locked" : ""}
         </span>
@@ -415,20 +468,33 @@ export function PriceChart({
           </button>
         ))}
       </div>
-      <div ref={wrapperRef} className="relative w-full">
-        <div ref={containerRef} className="w-full" />
-        <canvas
-          ref={overlayRef}
-          className="absolute inset-0 w-full h-full pointer-events-none"
-          style={{ zIndex: 2 }}
-        />
-        {chartState && (
-          <OHLCVTooltip
-            chart={chartState.chart}
-            containerRef={wrapperRef}
-            candleSeries={chartState.candleSeries}
-            volumeSeries={chartState.volumeSeries}
+      <div className="flex items-stretch">
+        <div ref={wrapperRef} className="relative flex-1 min-w-0">
+          <div ref={containerRef} className="w-full" />
+          <canvas
+            ref={overlayRef}
+            className="absolute inset-0 w-full h-full pointer-events-none"
+            style={{ zIndex: 2 }}
           />
+          {chartState && (
+            <OHLCVTooltip
+              chart={chartState.chart}
+              containerRef={wrapperRef}
+              candleSeries={chartState.candleSeries}
+              volumeSeries={chartState.volumeSeries}
+            />
+          )}
+        </div>
+        {placement === "gutter" && (
+          <div className="relative shrink-0 border-l border-border/60"
+               style={{ width: 140, height }}>
+            <canvas ref={gutterRef} className="w-full h-full" />
+            {!(profile?.available && anchors.length === 2) && (
+              <span className="absolute inset-0 flex items-center justify-center text-[9px] text-muted text-center px-3">
+                volume profile renders here once A/B is set
+              </span>
+            )}
+          </div>
         )}
       </div>
       {onMeasureChange && (

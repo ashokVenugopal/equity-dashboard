@@ -16,6 +16,7 @@ const CATEGORY_META: Record<string, { label: string; cls: string }> = {
   rbi_mpc: { label: "RBI", cls: "border-accent/60 text-accent" },
   us_jobs: { label: "US Jobs", cls: "border-muted/60 text-muted" },
   china: { label: "China", cls: "border-[#FF7043]/60 text-[#FF7043]" },
+  rbi_data: { label: "RBI Data", cls: "border-[#26A69A]/60 text-[#26A69A]" },
   results: { label: "Results", cls: "border-positive/60 text-positive" },
   corp_action: { label: "Corp Action", cls: "border-[#FFD700]/60 text-[#FFD700]" },
   ipo: { label: "IPO", cls: "border-[#AB47BC]/60 text-[#AB47BC]" },

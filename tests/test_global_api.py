@@ -87,8 +87,11 @@ def test_global_overview_includes_change_pct_fields(test_client):
     resp = test_client.get("/api/global/overview")
     for instruments in resp.json()["groups"].values():
         for inst in instruments:
+            assert "change_pct_1d" in inst
             assert "change_pct_1w" in inst
             assert "change_pct_1m" in inst
+            assert "change_pct_3m" in inst
+            assert "change_pct_5y" in inst
             assert "change_pct_1y" in inst
 
 

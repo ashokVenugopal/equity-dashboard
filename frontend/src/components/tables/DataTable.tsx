@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from "react";
 import Link from "next/link";
-import { formatCell } from "@/lib/formatters";
+import { formatCell, formatChangePct } from "@/lib/formatters";
 
 interface DataTableProps {
   columns: { key: string; label: string; align?: "left" | "right" }[];
@@ -100,6 +100,11 @@ export function DataTable({ columns, rows, compact = false, symbolKey = "symbol"
                       >
                         {val}
                       </Link>
+                    ) : col.key.startsWith("change_pct") ? (
+                      (() => {
+                        const f = formatChangePct(typeof val === "number" ? val : null);
+                        return <span className={f.className}>{f.text}</span>;
+                      })()
                     ) : (
                       formatCell(col.key, val)
                     )}

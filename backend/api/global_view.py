@@ -48,6 +48,11 @@ def global_overview():
                    lp.close, lp.trade_date, lp.open, lp.high, lp.low, lp.volume,
                    (SELECT ph.close FROM price_history ph
                      WHERE ph.instrument_id = i.instrument_id
+                       AND ph.trade_date < lp.trade_date
+                       AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_1d,
+                   (SELECT ph.close FROM price_history ph
+                     WHERE ph.instrument_id = i.instrument_id
                        AND ph.trade_date <= date(lp.trade_date, '-7 days')
                        AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
                      ORDER BY ph.trade_date DESC LIMIT 1) AS close_1w,
@@ -58,9 +63,19 @@ def global_overview():
                      ORDER BY ph.trade_date DESC LIMIT 1) AS close_1m,
                    (SELECT ph.close FROM price_history ph
                      WHERE ph.instrument_id = i.instrument_id
+                       AND ph.trade_date <= date(lp.trade_date, '-91 days')
+                       AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_3m,
+                   (SELECT ph.close FROM price_history ph
+                     WHERE ph.instrument_id = i.instrument_id
                        AND ph.trade_date <= date(lp.trade_date, '-365 days')
                        AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
-                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_1y
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_1y,
+                   (SELECT ph.close FROM price_history ph
+                     WHERE ph.instrument_id = i.instrument_id
+                       AND ph.trade_date <= date(lp.trade_date, '-1825 days')
+                       AND CAST(strftime('%w', ph.trade_date) AS INTEGER) NOT IN (0, 6)
+                     ORDER BY ph.trade_date DESC LIMIT 1) AS close_5y
             FROM instruments i
             LEFT JOIN lp ON lp.instrument_id = i.instrument_id AND lp.rn = 1
             WHERE i.instrument_type != 'stock' AND i.is_active = 1
@@ -72,7 +87,9 @@ def global_overview():
             d = dict(r)
             d.pop("instrument_id", None)
             latest = d.get("close")
-            for tf, prev_key in (("1w", "close_1w"), ("1m", "close_1m"), ("1y", "close_1y")):
+            for tf, prev_key in (("1d", "close_1d"), ("1w", "close_1w"),
+                                 ("1m", "close_1m"), ("3m", "close_3m"),
+                                 ("1y", "close_1y"), ("5y", "close_5y")):
                 prev = d.pop(prev_key)
                 d[f"change_pct_{tf}"] = (
                     (latest - prev) / prev * 100 if latest is not None and prev not in (None, 0) else None

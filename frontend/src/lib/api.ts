@@ -72,9 +72,12 @@ export interface GlobalInstrument {
   high: number | null;
   low: number | null;
   volume: number | null;
+  change_pct_1d: number | null;
   change_pct_1w: number | null;
   change_pct_1m: number | null;
+  change_pct_3m: number | null;
   change_pct_1y: number | null;
+  change_pct_5y: number | null;
 }
 
 export interface MarketOverview {

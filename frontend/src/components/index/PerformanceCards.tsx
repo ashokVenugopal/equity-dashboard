@@ -10,7 +10,7 @@ export function PerformanceCards({ items }: PerformanceCardsProps) {
   if (!items.length) return null;
 
   return (
-    <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
+    <div className="grid grid-cols-4 lg:grid-cols-8 gap-2">
       {items.map((item) => {
         const pct = item.change_pct;
         const isPos = pct != null && pct >= 0;
@@ -38,6 +38,16 @@ export function PerformanceCards({ items }: PerformanceCardsProps) {
                 ? `${isPos ? "+" : ""}${pct.toFixed(2)}%`
                 : "—"}
             </div>
+            {item.relative_pct != null && (
+              <div
+                className={`text-[10px] font-mono mt-0.5 ${
+                  item.relative_pct >= 0 ? "text-positive/80" : "text-negative/80"
+                }`}
+                title="vs NIFTY 50 over the same window"
+              >
+                {item.relative_pct >= 0 ? "+" : ""}{item.relative_pct.toFixed(2)}% vs N50
+              </div>
+            )}
 
             {/* Distribution bar */}
             {item.total != null && item.total > 0 && (

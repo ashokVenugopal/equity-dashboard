@@ -350,7 +350,9 @@ export function PriceChart({
         fromDate.setDate(fromDate.getDate() - grain.days);
         const firstBar = data[0].trade_date;
         const from = fromDate.toISOString().slice(0, 10);
-        chart.applyOptions({ handleScroll: false, handleScale: false });
+        // Zoom locked, scroll free: the window SIZE is pinned to the
+        // grain but you can slide it through time.
+        chart.applyOptions({ handleScroll: true, handleScale: false });
         chart.timeScale().setVisibleRange({
           from: (from < firstBar ? firstBar : from) as Time,
           to: to as Time,
@@ -457,7 +459,7 @@ export function PriceChart({
         ))}
         <span className="text-muted ml-2" />
         <span className={snapGrain ? "text-accent" : "text-muted"}>
-          snap{snapGrain ? " · range locked" : ""}
+          snap{snapGrain ? " · window locked, drag to slide" : ""}
         </span>
         <button
           className={`border rounded px-1.5 py-0.5 ${

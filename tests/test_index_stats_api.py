@@ -31,8 +31,8 @@ class TestIndexStatsHappyPath:
     def test_stats_has_performance_list(self, test_client):
         data = test_client.get("/api/index-detail/nifty-50/stats").json()
         assert isinstance(data["performance"], list)
-        # Should have 6 timeframes (1d, 1w, 1m, 3m, 6m, 1y)
-        assert len(data["performance"]) == 6
+        # Should have 8 timeframes (1d..5y)
+        assert len(data["performance"]) == 8
 
     def test_stats_performance_keys(self, test_client):
         data = test_client.get("/api/index-detail/nifty-50/stats").json()
@@ -44,7 +44,7 @@ class TestIndexStatsHappyPath:
     def test_stats_performance_timeframe_keys(self, test_client):
         data = test_client.get("/api/index-detail/nifty-50/stats").json()
         keys = [p["key"] for p in data["performance"]]
-        assert keys == ["1d", "1w", "1m", "3m", "6m", "1y"]
+        assert keys == ["1d", "1w", "1m", "3m", "6m", "1y", "3y", "5y"]
 
     def test_stats_has_technicals_dict(self, test_client):
         data = test_client.get("/api/index-detail/nifty-50/stats").json()

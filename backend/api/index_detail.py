@@ -153,9 +153,50 @@ def index_stats(slug: str):
                        (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-30 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1m,
                        (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-90 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_3m,
                        (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-180 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_6m,
-                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-365 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1y
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-365 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1y,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-1095 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_3y,
+                       (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-1825 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_5y
                 FROM latest l
             """, (idx_inst["instrument_id"],)).fetchone()
+
+            # Benchmark (NIFTY 50) closes at the same lookbacks, for
+            # relative performance. The NIFTY 50 page itself gets none.
+            bench_pct = {}
+            bench = conn.execute(
+                "SELECT instrument_id FROM instruments "
+                "WHERE instrument_type='index' AND symbol='NIFTY50' AND is_active=1"
+            ).fetchone()
+            if bench and idx_inst["instrument_id"] != bench["instrument_id"]:
+                bench_rows = conn.execute("""
+                    WITH best_per_date AS (
+                        SELECT trade_date, close,
+                               ROW_NUMBER() OVER (PARTITION BY trade_date
+                                   ORDER BY CASE source WHEN 'nse_index' THEN 1 WHEN 'yahoo_finance' THEN 2 ELSE 3 END
+                               ) AS src_rn
+                        FROM price_history WHERE instrument_id = ?
+                    ),
+                    clean AS (SELECT trade_date, close FROM best_per_date WHERE src_rn = 1),
+                    latest AS (
+                        SELECT close, trade_date FROM clean ORDER BY trade_date DESC LIMIT 1
+                    )
+                    SELECT l.close AS current_close,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-1 day') ORDER BY c.trade_date DESC LIMIT 1) AS close_1d,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-7 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1w,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-30 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1m,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-90 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_3m,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-180 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_6m,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-365 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_1y,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-1095 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_3y,
+                           (SELECT c.close FROM clean c WHERE c.trade_date <= date(l.trade_date, '-1825 days') ORDER BY c.trade_date DESC LIMIT 1) AS close_5y
+                    FROM latest l
+                """, (bench["instrument_id"],)).fetchone()
+                if bench_rows:
+                    bcur = bench_rows["current_close"]
+                    for k in ("1d", "1w", "1m", "3m", "6m", "1y", "3y", "5y"):
+                        bprev = bench_rows[f"close_{k}"]
+                        bench_pct[k] = (
+                            round((bcur - bprev) / bprev * 100, 2)
+                            if bcur is not None and bprev and bprev > 0 else None)
 
             if perf_rows:
                 cur = perf_rows["current_close"]
@@ -163,10 +204,17 @@ def index_stats(slug: str):
                     ("1d", "1 Day", "close_1d"), ("1w", "1 Week", "close_1w"),
                     ("1m", "1 Month", "close_1m"), ("3m", "3 Month", "close_3m"),
                     ("6m", "6 Month", "close_6m"), ("1y", "1 Year", "close_1y"),
+                    ("3y", "3 Year", "close_3y"), ("5y", "5 Year", "close_5y"),
                 ]:
                     prev = perf_rows[prev_key]
                     pct = round((cur - prev) / prev * 100, 2) if prev and prev > 0 else None
-                    performance.append({"key": key, "label": label, "change_pct": pct})
+                    bp = bench_pct.get(key)
+                    performance.append({
+                        "key": key, "label": label, "change_pct": pct,
+                        # vs NIFTY 50: positive = outperforming the benchmark
+                        "relative_pct": (round(pct - bp, 2)
+                                         if pct is not None and bp is not None else None),
+                    })
 
         # ── Constituent breadth per timeframe ──
         constituents = conn.execute("""

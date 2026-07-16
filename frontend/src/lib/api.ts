@@ -557,6 +557,7 @@ export interface IndexPerformanceItem {
   advances?: number;
   declines?: number;
   total?: number;
+  relative_pct?: number | null;
 }
 
 export interface IndexStats {

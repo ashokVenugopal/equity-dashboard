@@ -63,12 +63,21 @@ def company_financials(
     symbol: str,
     statement_type: str = Query("consolidated", description="consolidated or standalone"),
     section: Optional[str] = Query(None, description="profit_loss, balance_sheet, cash_flow, or all"),
+    grain: str = Query("annual", pattern="^(annual|quarterly|half_yearly)$",
+                       description="Period grain for the columns"),
 ):
     """
     Financial data pivoted: concepts as rows, period_end_dates as columns.
-    Returns structured JSON for screener.in-style table rendering.
+
+    Columns are single-grain (annual | quarterly | half_yearly) — mixing
+    grains interleaves annual columns with quarter-ends and screener
+    snapshot dates, producing mostly-empty tables. A section with no data
+    at the requested grain (e.g. cash flow is annual-only for most
+    companies) falls back to annual; grain_used reports the per-section
+    outcome and section_periods carries each section's own column list.
     """
-    logger.info("GET /api/company/%s/financials — statement_type=%s, section=%s", symbol, statement_type, section)
+    logger.info("GET /api/company/%s/financials — statement_type=%s, section=%s, grain=%s",
+                symbol, statement_type, section, grain)
     t0 = time.time()
     conn = get_pipeline_connection()
     try:
@@ -78,40 +87,63 @@ def company_financials(
 
         view = "best_facts_consolidated" if statement_type == "consolidated" else "best_facts_consolidated"
 
-        section_filter = ""
-        params = [company["company_id"]]
-        if section and section != "all":
-            section_filter = "AND c.section = ?"
-            params.append(section)
+        def _fetch(grain_value, only_section=None):
+            section_filter = ""
+            params = [company["company_id"], grain_value]
+            if only_section:
+                section_filter = "AND c.section = ?"
+                params.append(only_section)
+            elif section and section != "all":
+                section_filter = "AND c.section = ?"
+                params.append(section)
+            return conn.execute(f"""
+                SELECT bf.concept_code, bf.concept_name, c.section, c.unit,
+                       bf.period_end_date, bf.value, bf.fiscal_year
+                FROM {view} bf
+                JOIN concepts c ON bf.concept_id = c.concept_id
+                JOIN sources s ON bf.source_id = s.source_id
+                WHERE bf.company_id = ?
+                  AND s.period_type = ?
+                  {section_filter}
+                ORDER BY c.concept_id, bf.period_end_date DESC
+            """, params).fetchall()
 
-        rows = conn.execute(f"""
-            SELECT bf.concept_code, bf.concept_name, c.section, c.unit,
-                   bf.period_end_date, bf.value, bf.fiscal_year
+        rows = list(_fetch(grain))
+        grain_used = {}
+
+        # Which grains exist per section (for the frontend toggle)
+        grains_available = {}
+        for r in conn.execute(f"""
+            SELECT DISTINCT c.section, s.period_type
             FROM {view} bf
             JOIN concepts c ON bf.concept_id = c.concept_id
             JOIN sources s ON bf.source_id = s.source_id
-            WHERE bf.company_id = ?
-              AND s.period_type = 'annual'
-              {section_filter}
-            ORDER BY c.section,
-                     CASE c.section
-                         WHEN 'profit_loss' THEN c.concept_id
-                         WHEN 'balance_sheet' THEN c.concept_id
-                         WHEN 'cash_flow' THEN c.concept_id
-                         ELSE c.concept_id
-                     END,
-                     bf.period_end_date DESC
-        """, params).fetchall()
+            WHERE bf.company_id = ? AND s.period_type != 'snapshot'
+        """, (company["company_id"],)):
+            grains_available.setdefault(r["section"], []).append(r["period_type"])
 
-        # Pivot: group by section, then by concept, with periods as columns
+        # Sections that publish nothing at this grain fall back to annual
+        if grain != "annual":
+            present = {r["section"] for r in rows}
+            for sec in ("profit_loss", "balance_sheet", "cash_flow"):
+                if sec in present or "annual" not in grains_available.get(sec, []):
+                    continue
+                if section and section != "all" and section != sec:
+                    continue
+                rows.extend(_fetch("annual", only_section=sec))
+                grain_used[sec] = "annual"
+
+        # Pivot: group by section, then by concept; periods per section
         sections_data = {}
         periods_set = set()
+        section_periods = {}
         for r in rows:
             sec = r["section"]
             code = r["concept_code"]
             period = r["period_end_date"]
             if period is not None:
                 periods_set.add(period)
+                section_periods.setdefault(sec, set()).add(period)
 
             if sec not in sections_data:
                 sections_data[sec] = {}
@@ -129,7 +161,12 @@ def company_financials(
         result = {
             "symbol": symbol.upper(),
             "statement_type": statement_type,
+            "grain": grain,
+            "grain_used": {sec: grain_used.get(sec, grain) for sec in sections_data},
+            "grains_available": grains_available,
             "periods": periods,
+            "section_periods": {sec: sorted(p, reverse=True)
+                                for sec, p in section_periods.items()},
             "sections": {},
         }
         for sec_name, concepts in sections_data.items():

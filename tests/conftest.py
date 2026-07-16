@@ -653,6 +653,16 @@ def _seed_sample_data(conn):
                     VALUES (1, 1, 1, '2025-03-31', '2024-2025', 69709.44, 'inr_cr')""")
     conn.execute("""INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit)
                     VALUES (1, 1, 2, '2025-03-31', '2024-2025', 17850.0, 'inr_cr')""")
+    # Quarterly source + facts (grain-toggle tests): two quarters of sales
+    conn.execute("""INSERT INTO sources (company_id, file_type, period_type, derivation, statement_type)
+                    VALUES (1, 'screener_web', 'quarterly', 'original', 'consolidated')""")
+    q_src = conn.execute(
+        "SELECT source_id FROM sources WHERE company_id=1 AND period_type='quarterly'").fetchone()[0]
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit) "
+                 "VALUES (?, 1, 1, '2025-06-30', '2025-2026', 18000.0, 'inr_cr')", (q_src,))
+    conn.execute("INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit) "
+                 "VALUES (?, 1, 1, '2025-09-30', '2025-2026', 19000.0, 'inr_cr')", (q_src,))
+
     # Fact with NULL period_end_date (snapshot concepts like current_price)
     conn.execute("""INSERT INTO facts (source_id, company_id, concept_id, period_end_date, fiscal_year, value, unit)
                     VALUES (1, 1, 3, NULL, NULL, 1500000.0, 'inr_cr')""")

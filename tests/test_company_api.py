@@ -84,3 +84,30 @@ def test_search_companies_no_results(test_client):
     resp = test_client.get("/api/search/companies?q=ZZZZZ")
     assert resp.status_code == 200
     assert resp.json()["count"] == 0
+
+
+def test_financials_grain_quarterly(test_client):
+    """grain=quarterly returns only quarterly periods for P&L; sections
+    with no quarterly data are absent or fall back to annual."""
+    d = test_client.get("/api/company/RELIANCE/financials?grain=quarterly").json()
+    assert d["grain"] == "quarterly"
+    pl_periods = d["section_periods"]["profit_loss"]
+    assert pl_periods == ["2025-09-30", "2025-06-30"]
+    sales = next(c for c in d["sections"]["profit_loss"] if c["concept_code"] == "sales")
+    assert sales["values"]["2025-09-30"] == 19000.0
+    # The annual figure must NOT bleed into the quarterly view
+    assert "2025-03-31" not in sales["values"]
+    assert "quarterly" in d["grains_available"]["profit_loss"]
+
+
+def test_financials_grain_annual_default_unchanged(test_client):
+    """Default grain=annual keeps the original single-grain behavior."""
+    d = test_client.get("/api/company/RELIANCE/financials").json()
+    assert d["grain"] == "annual"
+    sales = next(c for c in d["sections"]["profit_loss"] if c["concept_code"] == "sales")
+    assert sales["values"]["2025-03-31"] == 69709.44
+    assert "2025-06-30" not in sales["values"]
+
+
+def test_financials_grain_validation(test_client):
+    assert test_client.get("/api/company/RELIANCE/financials?grain=weekly").status_code == 422

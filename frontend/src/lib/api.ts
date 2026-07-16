@@ -246,10 +246,16 @@ export interface FinancialConcept {
   values: Record<string, number | null>;
 }
 
+export type FinancialGrain = "annual" | "quarterly" | "half_yearly";
+
 export interface CompanyFinancials {
   symbol: string;
   statement_type: string;
+  grain?: FinancialGrain;
+  grain_used?: Record<string, string>;
+  grains_available?: Record<string, string[]>;
   periods: string[];
+  section_periods?: Record<string, string[]>;
   sections: Record<string, FinancialConcept[]>;
 }
 
@@ -257,8 +263,8 @@ export function getCompanyMeta(symbol: string): Promise<CompanyMeta> {
   return apiFetch(`/api/company/${symbol}`);
 }
 
-export function getCompanyFinancials(symbol: string, section?: string): Promise<CompanyFinancials> {
-  const qs = section ? `?section=${section}` : "";
+export function getCompanyFinancials(symbol: string, section?: string, grain: FinancialGrain = "annual"): Promise<CompanyFinancials> {
+  const qs = `?grain=${grain}` + (section ? `&section=${section}` : "");
   return apiFetch(`/api/company/${symbol}/financials${qs}`);
 }
 

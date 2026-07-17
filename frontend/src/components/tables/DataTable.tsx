@@ -11,11 +11,13 @@ interface DataTableProps {
   compact?: boolean;
   /** Column key that contains the stock symbol for linking to /company/{symbol} */
   symbolKey?: string;
+  /** Route prefix for symbol links (default company pages). */
+  symbolHrefPrefix?: string;
 }
 
 type SortDir = "asc" | "desc";
 
-export function DataTable({ columns, rows, compact = false, symbolKey = "symbol" }: DataTableProps) {
+export function DataTable({ columns, rows, compact = false, symbolKey = "symbol", symbolHrefPrefix = "/company/" }: DataTableProps) {
   const [sortKey, setSortKey] = useState<string | null>(null);
   const [sortDir, setSortDir] = useState<SortDir>("desc");
 
@@ -95,7 +97,9 @@ export function DataTable({ columns, rows, compact = false, symbolKey = "symbol"
                   >
                     {isSymbol ? (
                       <Link
-                        href={`/company/${val}`}
+                        href={`${symbolHrefPrefix}${
+                          symbolHrefPrefix === "/company/" ? val : String(val).toLowerCase()
+                        }`}
                         className="text-accent hover:underline"
                       >
                         {val}

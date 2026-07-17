@@ -50,6 +50,8 @@ export default function GlobalPage() {
               {TYPE_LABELS[type] || type}
             </h2>
             <DataTable
+              symbolKey={type === "index" ? "symbol" : ""}
+              symbolHrefPrefix="/index-view/"
               columns={[
                 { key: "symbol", label: "Symbol" },
                 { key: "name", label: "Name" },
@@ -64,7 +66,6 @@ export default function GlobalPage() {
                 { key: "trade_date", label: "Date" },
               ]}
               rows={instruments}
-              symbolKey=""
               compact
             />
           </section>

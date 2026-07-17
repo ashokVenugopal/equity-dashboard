@@ -83,10 +83,16 @@ def index_overview(slug: str):
               AND (effective_to IS NULL OR effective_to >= date('now'))
         """, (index_name,)).fetchone()
 
+        # Unmapped slugs resolve to themselves — show the instrument's
+        # human name instead ("NIFTY Auto", not "niftyauto").
+        display_name = index_name
+        if idx_inst and index_name.lower() == slug.lower():
+            display_name = idx_inst["name"] or idx_inst["symbol"]
+
         elapsed = time.time() - t0
         logger.info("GET /api/index-detail/%s/overview — %.3fs", slug, elapsed)
         return {
-            "index_name": index_name,
+            "index_name": display_name,
             "slug": slug,
             "instrument": dict(idx_inst) if idx_inst else None,
             "price": price_data,

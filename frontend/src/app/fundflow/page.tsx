@@ -77,7 +77,7 @@ export default function FundFlowPage() {
       {activeData.data ? (
         <DataTable
           columns={tab === "daily" ? DAILY_COLUMNS : MONTHLY_COLUMNS}
-          rows={activeData.data.flows}
+          rows={withInstNet(activeData.data.flows)}
           symbolKey=""
         />
       ) : activeData.loading ? (
@@ -87,6 +87,17 @@ export default function FundFlowPage() {
       )}
     </div>
   );
+}
+
+function withInstNet(flows: Record<string, unknown>[]): Record<string, unknown>[] {
+  return flows.map((row) => {
+    const fii = row.fii_net as number | null;
+    const dii = row.dii_net as number | null;
+    return {
+      ...row,
+      inst_net: fii == null && dii == null ? null : (fii || 0) + (dii || 0),
+    };
+  });
 }
 
 function toFlowBarData(flows: Record<string, unknown>[]): FlowBarData[] {
@@ -105,12 +116,14 @@ const DAILY_COLUMNS = [
   { key: "dii_buy", label: "DII Buy", align: "right" as const },
   { key: "dii_sell", label: "DII Sell", align: "right" as const },
   { key: "dii_net", label: "DII Net", align: "right" as const },
+  { key: "inst_net", label: "Inst Net", align: "right" as const },
 ];
 
 const MONTHLY_COLUMNS = [
   { key: "flow_date", label: "Month" },
   { key: "fii_net", label: "FII Net", align: "right" as const },
   { key: "dii_net", label: "DII Net", align: "right" as const },
+  { key: "inst_net", label: "Inst Net", align: "right" as const },
   { key: "fii_buy", label: "FII Buy", align: "right" as const },
   { key: "fii_sell", label: "FII Sell", align: "right" as const },
   { key: "dii_buy", label: "DII Buy", align: "right" as const },
@@ -145,6 +158,7 @@ function SummaryCards({ data }: { data: Record<string, unknown> }) {
 function SummaryCard({ title, fii, dii }: { title: string; fii: number | null; dii: number | null }) {
   const fmt = (v: number | null) => v != null ? `${v >= 0 ? "+" : ""}${v.toLocaleString("en-IN")} Cr` : "—";
   const cls = (v: number | null) => v == null ? "text-muted" : v >= 0 ? "text-positive" : "text-negative";
+  const inst = fii == null && dii == null ? null : (fii || 0) + (dii || 0);
 
   return (
     <div className="border border-border rounded bg-surface p-3">
@@ -157,6 +171,10 @@ function SummaryCard({ title, fii, dii }: { title: string; fii: number | null; d
         <div>
           <span className="text-muted mr-2">DII</span>
           <span className={`font-bold ${cls(dii)}`}>{fmt(dii)}</span>
+        </div>
+        <div>
+          <span className="text-muted mr-2">Inst</span>
+          <span className={`font-bold ${cls(inst)}`}>{fmt(inst)}</span>
         </div>
       </div>
     </div>

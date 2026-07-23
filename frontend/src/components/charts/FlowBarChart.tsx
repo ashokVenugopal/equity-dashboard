@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   type IChartApi,
   type ISeriesApi,
+  type SeriesMarker,
+  type Time,
   ColorType,
   CrosshairMode,
   HistogramSeries,
   LineSeries,
+  createSeriesMarkers,
 } from "lightweight-charts";
 import { ChartTooltip, type TooltipSeriesConfig } from "./ChartTooltip";
 
@@ -25,10 +28,16 @@ interface FlowBarChartProps {
 
 const FII_COLOR = "#2196F3";
 const DII_COLOR = "#AB47BC";
+const INST_COLOR = "#26A69A";
 const CUM_COLOR = "#FFD700";
 
 const fmtCr = (v: number) =>
   `${v >= 0 ? "+" : ""}${v.toLocaleString("en-IN", { maximumFractionDigits: 0 })} Cr`;
+
+const instNet = (d: FlowBarData): number | null =>
+  d.fii_net == null && d.dii_net == null
+    ? null
+    : (d.fii_net || 0) + (d.dii_net || 0);
 
 export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -37,6 +46,8 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
     chart: IChartApi;
     configs: TooltipSeriesConfig[];
   } | null>(null);
+  const [anchors, setAnchors] = useState<string[]>([]);
+  const markersApiRef = useRef<ReturnType<typeof createSeriesMarkers<Time>> | null>(null);
 
   useEffect(() => {
     if (!containerRef.current || data.length === 0) return;
@@ -99,6 +110,21 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
         }))
     );
 
+    // Net institutional bars (teal) — FII + DII per session, right scale
+    const instSeries = chart.addSeries(HistogramSeries, {
+      priceFormat: { type: "price", precision: 0, minMove: 1 },
+      priceScaleId: "right",
+    });
+    instSeries.setData(
+      data
+        .filter((d) => instNet(d) != null)
+        .map((d) => ({
+          time: d.time,
+          value: instNet(d)!,
+          color: instNet(d)! >= 0 ? `${INST_COLOR}b0` : `${INST_COLOR}70`,
+        }))
+    );
+
     // Cumulative net line (FII + DII running total) — left price scale
     let cumulative = 0;
     const cumData = data
@@ -122,6 +148,16 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
 
     chart.timeScale().fitContent();
 
+    // A/B measurement: two clicks mark a window; markers ride the
+    // cumulative line.
+    markersApiRef.current = createSeriesMarkers(cumSeries, []);
+    chart.subscribeClick((param) => {
+      if (!param.time) return;
+      const iso = String(param.time);
+      setAnchors((prev) => (prev.length >= 2 ? [iso] : [...prev, iso]));
+    });
+    setAnchors([]);
+
     // Tooltip config
     const configs: TooltipSeriesConfig[] = [
       {
@@ -131,6 +167,10 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
       {
         series: diiSeries as ISeriesApi<never>,
         field: { label: "DII Net", color: DII_COLOR, format: fmtCr },
+      },
+      {
+        series: instSeries as ISeriesApi<never>,
+        field: { label: "Inst Net", color: INST_COLOR, format: fmtCr },
       },
       {
         series: cumSeries as ISeriesApi<never>,
@@ -150,9 +190,36 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
     return () => {
       window.removeEventListener("resize", handleResize);
       setChartState(null);
+      markersApiRef.current = null;
       chart.remove();
     };
   }, [data, height]);
+
+  // A/B markers on the cumulative line
+  useEffect(() => {
+    const api = markersApiRef.current;
+    if (!api) return;
+    const sorted = [...anchors].sort();
+    const markers: SeriesMarker<Time>[] = sorted.map((iso, i) => ({
+      time: iso as Time,
+      position: "aboveBar",
+      color: i === 0 ? "#FFD700" : "#26A69A",
+      shape: "arrowDown",
+      text: i === 0 ? "A" : "B",
+    }));
+    try { api.setMarkers(markers); } catch { /* chart disposed */ }
+  }, [anchors]);
+
+  // Window totals between A and B: flows AFTER A through B, i.e. exactly
+  // the cumulative line's cum(B) − cum(A).
+  const measure = useMemo(() => {
+    if (anchors.length !== 2) return null;
+    const [a, b] = [...anchors].sort();
+    const inWindow = data.filter((d) => d.time > a && d.time <= b);
+    const fii = inWindow.reduce((s, d) => s + (d.fii_net || 0), 0);
+    const dii = inWindow.reduce((s, d) => s + (d.dii_net || 0), 0);
+    return { a, b, fii, dii, inst: fii + dii, sessions: inWindow.length };
+  }, [anchors, data]);
 
   if (data.length === 0) return null;
 
@@ -170,6 +237,10 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
             DII / MF Equity
           </span>
           <span className="flex items-center gap-1">
+            <span className="inline-block w-2.5 h-2.5 rounded-sm" style={{ background: INST_COLOR }} />
+            Net Institutional
+          </span>
+          <span className="flex items-center gap-1">
             <span className="inline-block w-2.5 h-0.5 rounded" style={{ background: CUM_COLOR }} />
             Cumulative
           </span>
@@ -183,6 +254,31 @@ export function FlowBarChart({ data, height = 220 }: FlowBarChartProps) {
             containerRef={chartWrapperRef}
             seriesConfigs={chartState.configs}
           />
+        )}
+      </div>
+      <div className="px-3 pb-2 pt-1 text-[10px] font-mono min-h-5">
+        {anchors.length === 0 && (
+          <span className="text-muted">click the chart twice to mark A → B and total the flows between them</span>
+        )}
+        {anchors.length === 1 && (
+          <span className="text-muted">anchor A = {anchors[0]} — click a second point</span>
+        )}
+        {measure && (
+          <span className="flex flex-wrap items-center gap-3">
+            <button
+              className="border border-border rounded px-1.5 text-muted hover:text-negative"
+              onClick={() => setAnchors([])}
+            >
+              clear A/B
+            </button>
+            <span className="text-muted">
+              {measure.a} → {measure.b} · {measure.sessions} session{measure.sessions === 1 ? "" : "s"}
+            </span>
+            <span style={{ color: FII_COLOR }}>FII {fmtCr(measure.fii)}</span>
+            <span style={{ color: DII_COLOR }}>DII {fmtCr(measure.dii)}</span>
+            <span style={{ color: INST_COLOR }}>Inst {fmtCr(measure.inst)}</span>
+            <span style={{ color: CUM_COLOR }}>Δ Cumulative {fmtCr(measure.inst)}</span>
+          </span>
         )}
       </div>
     </div>
